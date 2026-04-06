@@ -364,29 +364,10 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
     .sort((left, right) => right.finalScore - left.finalScore)
     .map((result, index) => ({ ...result, rank: index + 1 }));
 
-  const finalResults =
-    results.length > 0
-      ? results
-      : liveTopics
-          .map((topic) =>
-            buildLiveResult({
-              topic,
-              registry,
-              query,
-              expandedQuery,
-              queryTokens,
-              queryEmbedding,
-              candidatePartners: request.candidatePartners ?? [],
-            }),
-          )
-          .sort((left, right) => right.finalScore - left.finalScore)
-          .slice(0, 6)
-          .map((result, index) => ({ ...result, rank: index + 1 }));
-
   rememberOrganisationDetails(
     registry,
     candidateProjects,
-    finalResults.map((result) => result.topic),
+    results.map((result) => result.topic),
     query,
   );
 
@@ -395,7 +376,7 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
     normalizedQuery,
     suggestedExpansions,
     acceptedExpansions,
-    results: finalResults,
+    results,
   };
 }
 
@@ -1660,6 +1641,9 @@ function applyResultFilters(result: SearchResult, filters: SearchFilters) {
   if (!filters.includeRecentClosed && result.topic.status === "closed") {
     return false;
   }
+  if (!filters.includeRecentClosed && isPastDeadline(result.topic.deadline)) {
+    return false;
+  }
   if (filters.programme && normalizeText(result.topic.programme) !== normalizeText(filters.programme)) {
     return false;
   }
@@ -2210,6 +2194,11 @@ function fallbackDeadline(status: LiveTopic["statusTag"]) {
     return date.toISOString().slice(0, 10);
   }
   return "2024-01-01";
+}
+
+function isPastDeadline(value: string) {
+  const deadline = new Date(`${value}T23:59:59Z`);
+  return deadline.getTime() < Date.now();
 }
 
 function normalizeIsoDate(value?: string) {
