@@ -345,8 +345,8 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
   const candidateProjects = await fetchCordisProjects(query, acceptedExpansions);
   const registry = buildLiveRegistry(candidateProjects);
   const expandedQuery = [query, ...acceptedExpansions].filter(Boolean).join(" ");
-  const queryTokens = tokenize(expandedQuery);
-  const queryEmbedding = embedText(expandedQuery);
+  const queryTokens = tokenize(query);
+  const queryEmbedding = embedText(query);
 
   const results = liveTopics
     .map((topic) =>
@@ -360,6 +360,7 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
         candidatePartners: request.candidatePartners ?? [],
       }),
     )
+    .filter((result) => passesTopicalGuard(query, result))
     .filter((result) => applyResultFilters(result, filters))
     .sort((left, right) => right.finalScore - left.finalScore)
     .map((result, index) => ({ ...result, rank: index + 1 }));
@@ -391,7 +392,7 @@ function buildLiveResult(args: {
 }): SearchResult {
   const context = buildTopicContext(
     args.topic,
-    args.expandedQuery,
+    args.query,
     args.registry,
     args.candidatePartners,
   );
@@ -1685,7 +1686,7 @@ function suggestLiveExpansions(
   const queryTokens = tokenize(query);
 
   for (const [key, values] of Object.entries(dataset.synonyms)) {
-    if (query.includes(normalizeText(key)) || queryTokens.some((token) => normalizeText(key).includes(token))) {
+    if (normalizeText(query) === normalizeText(key)) {
       for (const value of values) {
         if (selected.has(value)) {
           continue;
@@ -1693,8 +1694,8 @@ function suggestLiveExpansions(
         selected.add(value);
         suggestions.push({
           term: value,
-          reason: `Synonym group for "${key}".`,
-          selectedDefault: true,
+          reason: `Optional synonym hint for "${key}".`,
+          selectedDefault: false,
         });
       }
     }
@@ -1709,7 +1710,7 @@ function suggestLiveExpansions(
       suggestions.push({
         term: keyword,
         reason: `Observed in a closely matched live topic (${topic.topicId}).`,
-        selectedDefault: semanticSimilarity(query, composeTopicText(topic)) > 0.62,
+        selectedDefault: false,
       });
     }
   }
@@ -1729,6 +1730,12 @@ function suggestLiveExpansions(
   }
 
   return suggestions.slice(0, 8);
+}
+
+function passesTopicalGuard(query: string, result: SearchResult) {
+  const lexical = lexicalScore(tokenize(query), tokenize(composeTopicText(result.topic)));
+  const semantic = semanticSimilarity(query, composeTopicText(result.topic));
+  return lexical >= 0.08 || semantic >= 0.6;
 }
 
 function computeMissingRoles(
