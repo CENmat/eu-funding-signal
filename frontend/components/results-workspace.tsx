@@ -101,8 +101,9 @@ export function ResultsWorkspace() {
 
       {search.data && !search.isLoading && !search.isError && search.data.results.length === 0 ? (
         <section className="rounded-[32px] border border-amber-200 bg-amber-50 p-8 text-sm leading-6 text-amber-950 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
-          No current open topics matched this search under the active filters. If you want historical
-          analogues, go back and enable `Include recent closed topics for analogue evidence`.
+          No current open grant topics matched this search under the active filters. Tender and
+          procurement notices are excluded. If you want historical analogues, go back and enable
+          `Include recent closed topics for analogue evidence`.
         </section>
       ) : null}
 

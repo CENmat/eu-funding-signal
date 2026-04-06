@@ -670,7 +670,38 @@ function normalizeSediaTopics(rawResults: RawSediaResult[]): LiveTopic[] {
 function looksLikeTopic(item: RawSediaResult) {
   const identifier = firstString(item.metadata?.identifier) ?? extractTopicIdFromUrl(item.url);
   const callId = firstString(item.metadata?.callIdentifier);
-  return Boolean(identifier && callId);
+  return Boolean(identifier && callId && isGrantTopicRecord(item));
+}
+
+function isGrantTopicRecord(item: RawSediaResult) {
+  const metadata = item.metadata ?? {};
+  const url = item.url ?? firstString(metadata.url) ?? "";
+
+  if (url.includes("/tender-details/")) {
+    return false;
+  }
+
+  if (
+    metadata.cftId ||
+    metadata.cftProcurementType ||
+    metadata.cftDocuments ||
+    metadata.contractType ||
+    metadata.mainCpv ||
+    metadata.lots
+  ) {
+    return false;
+  }
+
+  const callId = firstString(metadata.callIdentifier) ?? "";
+  if (/\/OP\//.test(callId) || /^EC-[A-Z]+\/.+\/OP\//.test(callId)) {
+    return false;
+  }
+
+  return (
+    url.includes("/topic-details/") ||
+    url.includes("/data/topicDetails/") ||
+    Boolean(metadata.actions || metadata.typesOfAction || metadata.topicConditions)
+  );
 }
 
 function mergeRawTopic(left: RawSediaResult, right: RawSediaResult): RawSediaResult {
@@ -2407,3 +2438,7 @@ function uniqueBy<T>(values: T[], selector: (value: T) => string) {
     return true;
   });
 }
+
+export const __test__ = {
+  isGrantTopicRecord,
+};
