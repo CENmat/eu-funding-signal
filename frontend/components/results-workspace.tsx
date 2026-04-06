@@ -9,8 +9,8 @@ import { CaveatBanner } from "@/components/caveat-banner";
 import { OpportunityCard } from "@/components/opportunity-card";
 
 const STORAGE_KEYS = {
-  filters: "efs:filters",
-  candidates: "efs:candidates",
+  filters: "efs:filters:v2",
+  candidates: "efs:candidates:v2",
 };
 
 export function ResultsWorkspace() {

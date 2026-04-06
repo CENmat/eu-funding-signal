@@ -10,8 +10,8 @@ import { CaveatBanner } from "@/components/caveat-banner";
 const DATASET = loadDemoDataset();
 const APP_MODE = getAppMode();
 const STORAGE_KEYS = {
-  filters: "efs:filters",
-  candidates: "efs:candidates",
+  filters: "efs:filters:v2",
+  candidates: "efs:candidates:v2",
 };
 
 type SearchFilters = {
@@ -37,7 +37,7 @@ const DEFAULT_FILTERS: SearchFilters = {
   programme: "",
   actionType: "",
   includeRecentClosed: false,
-  deadlineWindowDays: "180",
+  deadlineWindowDays: "",
   minimumBudget: "",
   maximumBudget: "",
   coordinatorCountry: "",
@@ -49,10 +49,7 @@ export function SearchWorkspace() {
   const router = useRouter();
   const [query, setQuery] = useState(process.env.NEXT_PUBLIC_DEFAULT_QUERY ?? "interposer");
   const [filters, setFilters] = useState<SearchFilters>(DEFAULT_FILTERS);
-  const [candidates, setCandidates] = useState<CandidatePartner[]>([
-    { ...EMPTY_CANDIDATE, name: "imec", country: "BE", role: "research" },
-    { ...EMPTY_CANDIDATE, name: "Fraunhofer IZM", country: "DE", role: "prototype validation" },
-  ]);
+  const [candidates, setCandidates] = useState<CandidatePartner[]>([{ ...EMPTY_CANDIDATE }]);
 
   const programmes = useMemo(
     () => Array.from(new Set(DATASET.topics.map((topic) => topic.programme))).sort(),

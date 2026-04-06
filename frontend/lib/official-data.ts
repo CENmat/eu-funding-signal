@@ -25,6 +25,36 @@ const REQUIRED_ROLES = [
   "end-user",
   "standardisation",
 ];
+const TERM_STOPWORDS = new Set([
+  "the",
+  "and",
+  "for",
+  "with",
+  "from",
+  "into",
+  "that",
+  "this",
+  "will",
+  "their",
+  "these",
+  "those",
+  "about",
+  "under",
+  "based",
+  "using",
+  "than",
+  "where",
+  "which",
+  "have",
+  "shall",
+  "such",
+  "they",
+  "them",
+  "across",
+  "would",
+  "could",
+  "should",
+]);
 const SEDIA_SEARCH_ENDPOINT = "https://api.tech.ec.europa.eu/search-api/prod/rest/search";
 const CORDIS_SEARCH_ENDPOINT = "https://cordis.europa.eu/api/search/results";
 const CORDIS_SEARCH_FIELDS = [
@@ -344,7 +374,6 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
   const liveTopics = normalizeSediaTopics(await fetchSediaTopics(query, acceptedExpansions));
   const candidateProjects = await fetchCordisProjects(query, acceptedExpansions);
   const registry = buildLiveRegistry(candidateProjects);
-  const expandedQuery = [query, ...acceptedExpansions].filter(Boolean).join(" ");
   const queryTokens = tokenize(query);
   const queryEmbedding = embedText(query);
 
@@ -354,7 +383,6 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
         topic,
         registry,
         query,
-        expandedQuery,
         queryTokens,
         queryEmbedding,
         candidatePartners: request.candidatePartners ?? [],
@@ -385,7 +413,6 @@ function buildLiveResult(args: {
   topic: LiveTopic;
   registry: LiveRegistry;
   query: string;
-  expandedQuery: string;
   queryTokens: string[];
   queryEmbedding: number[];
   candidatePartners: CandidatePartner[];
@@ -1683,27 +1710,14 @@ function suggestLiveExpansions(
 ): SupportingTerm[] {
   const selected = new Set<string>();
   const suggestions: SupportingTerm[] = [];
-  const queryTokens = tokenize(query);
-
-  for (const [key, values] of Object.entries(dataset.synonyms)) {
-    if (normalizeText(query) === normalizeText(key)) {
-      for (const value of values) {
-        if (selected.has(value)) {
-          continue;
-        }
-        selected.add(value);
-        suggestions.push({
-          term: value,
-          reason: `Optional synonym hint for "${key}".`,
-          selectedDefault: false,
-        });
-      }
-    }
-  }
 
   for (const topic of topics.slice(0, 4)) {
     for (const keyword of topic.keywords.slice(0, 3)) {
-      if (selected.has(keyword) || normalizeText(query).includes(normalizeText(keyword))) {
+      if (
+        selected.has(keyword) ||
+        normalizeText(query).includes(normalizeText(keyword)) ||
+        !isUsefulExpansionTerm(keyword)
+      ) {
         continue;
       }
       selected.add(keyword);
@@ -1715,18 +1729,35 @@ function suggestLiveExpansions(
     }
   }
 
+  const projectTermCounts = new Map<string, { term: string; count: number }>();
   for (const project of projects.slice(0, 3)) {
-    for (const keyword of extractTerms(`${project.title} ${project.objective}`).slice(0, 3)) {
-      if (selected.has(keyword) || normalizeText(query).includes(normalizeText(keyword))) {
-        continue;
-      }
-      selected.add(keyword);
-      suggestions.push({
-        term: keyword,
-        reason: `Frequent analogue term from ${project.title}.`,
-        selectedDefault: false,
+    for (const keyword of extractTerms(`${project.title} ${project.objective}`).slice(0, 6)) {
+      const key = normalizeText(keyword);
+      const current = projectTermCounts.get(key);
+      projectTermCounts.set(key, {
+        term: current?.term ?? keyword,
+        count: (current?.count ?? 0) + 1,
       });
     }
+  }
+
+  for (const { term, count } of [...projectTermCounts.values()].sort((left, right) => right.count - left.count)) {
+    if (count < 2) {
+      continue;
+    }
+    if (
+      selected.has(term) ||
+      normalizeText(query).includes(normalizeText(term)) ||
+      !isUsefulExpansionTerm(term)
+    ) {
+      continue;
+    }
+    selected.add(term);
+    suggestions.push({
+      term,
+      reason: "Repeated across the closest analogue projects.",
+      selectedDefault: false,
+    });
   }
 
   return suggestions.slice(0, 8);
@@ -2135,38 +2166,33 @@ function splitTerms(value?: string) {
     .filter(Boolean);
 }
 
+function isUsefulExpansionTerm(value: string) {
+  const trimmed = value.trim();
+  const normalized = normalizeText(trimmed);
+  if (!normalized) {
+    return false;
+  }
+
+  if (/^(?:[A-Za-z0-9]+-){2,}[A-Za-z0-9]+$/.test(trimmed) && /\d/.test(trimmed)) {
+    return false;
+  }
+
+  const tokens = tokenize(trimmed).filter((token) => !TERM_STOPWORDS.has(token));
+  if (tokens.length === 0) {
+    return false;
+  }
+
+  if (tokens.length === 1) {
+    return tokens[0].length >= 6;
+  }
+
+  return true;
+}
+
 function extractTerms(text: string) {
-  const stopwords = new Set([
-    "the",
-    "and",
-    "for",
-    "with",
-    "from",
-    "into",
-    "that",
-    "this",
-    "will",
-    "their",
-    "these",
-    "those",
-    "about",
-    "under",
-    "based",
-    "using",
-    "than",
-    "where",
-    "which",
-    "have",
-    "shall",
-    "such",
-    "they",
-    "them",
-    "into",
-    "across",
-  ]);
   const counts = new Map<string, number>();
   for (const token of tokenize(text)) {
-    if (token.length < 4 || stopwords.has(token)) {
+    if (token.length < 4 || TERM_STOPWORDS.has(token)) {
       continue;
     }
     counts.set(token, (counts.get(token) ?? 0) + 1);
@@ -2472,3 +2498,8 @@ function uniqueBy<T>(values: T[], selector: (value: T) => string) {
     return true;
   });
 }
+
+export const __test__ = {
+  isUsefulExpansionTerm,
+  suggestLiveExpansions,
+};
