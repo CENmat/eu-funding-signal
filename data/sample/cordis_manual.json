@@ -1,0 +1,19 @@
+[
+  {
+    "id": "proj_chiplet_bridge",
+    "title": "ChipletBridge",
+    "objective": "Develop modular interposer and chiplet integration toolchains with pilot-line readiness for European AI and photonics packages.",
+    "programme": "Horizon Europe Cluster 4",
+    "actionType": "RIA",
+    "sourceUrl": "https://cordis.europa.eu/datalab"
+  },
+  {
+    "id": "proj_battery_passport_ds",
+    "title": "Battery Passport Data Space",
+    "objective": "Create interoperable battery passport data models, compliance workflows, and audit-ready traceability for EV value chains.",
+    "programme": "Horizon Europe Cluster 5",
+    "actionType": "IA",
+    "sourceUrl": "https://cordis.europa.eu/datalab"
+  }
+]
+

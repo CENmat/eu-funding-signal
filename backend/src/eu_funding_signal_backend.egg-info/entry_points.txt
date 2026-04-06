@@ -1,0 +1,2 @@
+[console_scripts]
+eu-funding-signal = eu_funding_signal.cli:app
