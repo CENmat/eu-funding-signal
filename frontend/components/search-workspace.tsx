@@ -47,7 +47,7 @@ const DEFAULT_FILTERS: SearchFilters = {
 
 export function SearchWorkspace() {
   const router = useRouter();
-  const [query, setQuery] = useState(process.env.NEXT_PUBLIC_DEFAULT_QUERY ?? "interposer");
+  const [query, setQuery] = useState("");
   const [filters, setFilters] = useState<SearchFilters>(DEFAULT_FILTERS);
   const [candidates, setCandidates] = useState<CandidatePartner[]>([{ ...EMPTY_CANDIDATE }]);
 
@@ -61,9 +61,13 @@ export function SearchWorkspace() {
   );
 
   const submitSearch = () => {
+    const trimmedQuery = query.trim();
+    if (!trimmedQuery) {
+      return;
+    }
     sessionStorage.setItem(STORAGE_KEYS.filters, JSON.stringify(filters));
     sessionStorage.setItem(STORAGE_KEYS.candidates, JSON.stringify(candidates.filter((candidate) => candidate.name)));
-    router.push(`/results/?q=${encodeURIComponent(query)}`);
+    router.push(`/results/?q=${encodeURIComponent(trimmedQuery)}`);
   };
 
   const importCandidates = async (file: File | null) => {
@@ -115,20 +119,8 @@ export function SearchWorkspace() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             className="mt-2 w-full rounded-[24px] border border-slate-300 bg-slate-50 px-5 py-4 text-lg outline-none ring-0 transition focus:border-teal-400 focus:bg-white"
-            placeholder="interposer, battery passport, circular construction..."
+            placeholder="Enter a technology, policy, market need, or topic phrase"
           />
-          <div className="mt-3 flex flex-wrap gap-2">
-            {DATASET.demoQueries.map((demoQuery) => (
-              <button
-                key={demoQuery}
-                type="button"
-                onClick={() => setQuery(demoQuery)}
-                className="rounded-full border border-slate-200 px-3 py-1.5 text-sm text-slate-600 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-800"
-              >
-                {demoQuery}
-              </button>
-            ))}
-          </div>
         </div>
 
         <div className="mt-8 rounded-[28px] border border-slate-200 bg-slate-50 p-5">
@@ -225,13 +217,15 @@ export function SearchWorkspace() {
           <button
             type="button"
             onClick={submitSearch}
-            className="rounded-full bg-teal-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-teal-800"
+            disabled={!query.trim()}
+            className="rounded-full bg-teal-700 px-6 py-3 text-sm font-semibold text-white transition hover:bg-teal-800 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             Run signal scan
           </button>
           <button
             type="button"
             onClick={() => {
+              setQuery("");
               setFilters(DEFAULT_FILTERS);
               setCandidates([{ ...EMPTY_CANDIDATE }]);
             }}

@@ -190,11 +190,18 @@ export function AdminWorkspace() {
 
           <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
             <h3 className="text-lg font-semibold text-slate-950">Synonym dictionary editor</h3>
-            <textarea
-              value={synonyms}
-              onChange={(event) => setSynonyms(event.target.value)}
-              className="mt-4 h-72 w-full rounded-3xl border border-slate-300 bg-slate-50 px-4 py-4 font-mono text-sm"
-            />
+            {snapshot.data?.synonymGroups.length ? (
+              <textarea
+                value={synonyms}
+                onChange={(event) => setSynonyms(event.target.value)}
+                className="mt-4 h-72 w-full rounded-3xl border border-slate-300 bg-slate-50 px-4 py-4 font-mono text-sm"
+              />
+            ) : (
+              <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+                Predefined synonym expansions are disabled in live search mode. The app now uses only the
+                text the user typed.
+              </div>
+            )}
           </div>
         </div>
       </section>

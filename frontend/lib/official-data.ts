@@ -346,15 +346,11 @@ export async function getOfficialAdminSnapshot(): Promise<AdminSnapshot> {
         id: "live-search",
         source: "Funding & Tenders / CORDIS",
         status: "OK",
-        message: "The static app now queries public official endpoints directly at runtime.",
+        message: "Live search uses only the user-typed query; predefined synonym expansions are disabled.",
         createdAt: new Date().toISOString(),
       },
     ],
-    synonymGroups: Object.entries(dataset.synonyms).map(([term, values]) => ({
-      term,
-      values,
-      count: values.length,
-    })),
+    synonymGroups: [],
   };
 }
 
@@ -363,16 +359,12 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
   const normalizedQuery = normalizeText(query);
   const filters = coerceFilters(request.filters);
 
-  const initialTopicHits = await fetchSediaTopics(query, []);
-  const initialProjects = await fetchCordisProjects(query, []);
-  const initialTopics = normalizeSediaTopics(initialTopicHits);
-  const suggestedExpansions = suggestLiveExpansions(normalizedQuery, initialTopics, initialProjects);
-  const acceptedExpansions = request.approvedExpansions?.length
-    ? request.approvedExpansions
-    : suggestedExpansions.filter((entry) => entry.selectedDefault).map((entry) => entry.term);
+  const suggestedExpansions: SupportingTerm[] = [];
+  const acceptedExpansions: string[] = [];
 
-  const liveTopics = normalizeSediaTopics(await fetchSediaTopics(query, acceptedExpansions));
-  const candidateProjects = await fetchCordisProjects(query, acceptedExpansions);
+  const initialTopicHits = await fetchSediaTopics(query, []);
+  const liveTopics = normalizeSediaTopics(initialTopicHits);
+  const candidateProjects = await fetchCordisProjects(query, []);
   const registry = buildLiveRegistry(candidateProjects);
   const queryTokens = tokenize(query);
   const queryEmbedding = embedText(query);
@@ -1703,66 +1695,6 @@ function applyResultFilters(result: SearchResult, filters: SearchFilters) {
   return true;
 }
 
-function suggestLiveExpansions(
-  query: string,
-  topics: Topic[],
-  projects: AnalogueProject[],
-): SupportingTerm[] {
-  const selected = new Set<string>();
-  const suggestions: SupportingTerm[] = [];
-
-  for (const topic of topics.slice(0, 4)) {
-    for (const keyword of topic.keywords.slice(0, 3)) {
-      if (
-        selected.has(keyword) ||
-        normalizeText(query).includes(normalizeText(keyword)) ||
-        !isUsefulExpansionTerm(keyword)
-      ) {
-        continue;
-      }
-      selected.add(keyword);
-      suggestions.push({
-        term: keyword,
-        reason: `Observed in a closely matched live topic (${topic.topicId}).`,
-        selectedDefault: false,
-      });
-    }
-  }
-
-  const projectTermCounts = new Map<string, { term: string; count: number }>();
-  for (const project of projects.slice(0, 3)) {
-    for (const keyword of extractTerms(`${project.title} ${project.objective}`).slice(0, 6)) {
-      const key = normalizeText(keyword);
-      const current = projectTermCounts.get(key);
-      projectTermCounts.set(key, {
-        term: current?.term ?? keyword,
-        count: (current?.count ?? 0) + 1,
-      });
-    }
-  }
-
-  for (const { term, count } of [...projectTermCounts.values()].sort((left, right) => right.count - left.count)) {
-    if (count < 2) {
-      continue;
-    }
-    if (
-      selected.has(term) ||
-      normalizeText(query).includes(normalizeText(term)) ||
-      !isUsefulExpansionTerm(term)
-    ) {
-      continue;
-    }
-    selected.add(term);
-    suggestions.push({
-      term,
-      reason: "Repeated across the closest analogue projects.",
-      selectedDefault: false,
-    });
-  }
-
-  return suggestions.slice(0, 8);
-}
-
 function passesTopicalGuard(query: string, result: SearchResult) {
   const lexical = lexicalScore(tokenize(query), tokenize(composeTopicText(result.topic)));
   const semantic = semanticSimilarity(query, composeTopicText(result.topic));
@@ -2166,29 +2098,6 @@ function splitTerms(value?: string) {
     .filter(Boolean);
 }
 
-function isUsefulExpansionTerm(value: string) {
-  const trimmed = value.trim();
-  const normalized = normalizeText(trimmed);
-  if (!normalized) {
-    return false;
-  }
-
-  if (/^(?:[A-Za-z0-9]+-){2,}[A-Za-z0-9]+$/.test(trimmed) && /\d/.test(trimmed)) {
-    return false;
-  }
-
-  const tokens = tokenize(trimmed).filter((token) => !TERM_STOPWORDS.has(token));
-  if (tokens.length === 0) {
-    return false;
-  }
-
-  if (tokens.length === 1) {
-    return tokens[0].length >= 6;
-  }
-
-  return true;
-}
-
 function extractTerms(text: string) {
   const counts = new Map<string, number>();
   for (const token of tokenize(text)) {
@@ -2498,8 +2407,3 @@ function uniqueBy<T>(values: T[], selector: (value: T) => string) {
     return true;
   });
 }
-
-export const __test__ = {
-  isUsefulExpansionTerm,
-  suggestLiveExpansions,
-};

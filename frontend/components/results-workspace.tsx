@@ -16,8 +16,7 @@ const STORAGE_KEYS = {
 export function ResultsWorkspace() {
   const dataset = loadDemoDataset();
   const searchParams = useSearchParams();
-  const query = searchParams.get("q") ?? (process.env.NEXT_PUBLIC_DEFAULT_QUERY ?? "interposer");
-  const [approvedExpansions, setApprovedExpansions] = useState<string[] | null>(null);
+  const query = (searchParams.get("q") ?? "").trim();
   const [candidates] = useState<CandidatePartner[]>(() => {
     if (typeof window === "undefined") {
       return [];
@@ -34,28 +33,30 @@ export function ResultsWorkspace() {
   });
 
   const search = useQuery<SearchResponse>({
-    queryKey: ["search-results", query, approvedExpansions, candidates, filters],
+    queryKey: ["search-results", query, candidates, filters],
+    enabled: Boolean(query),
     queryFn: () =>
       loadSearchResults({
         query,
-        approvedExpansions: approvedExpansions ?? undefined,
         candidatePartners: candidates,
         filters,
       }),
   });
-  const selectedExpansions = approvedExpansions ?? search.data?.acceptedExpansions ?? [];
 
   return (
     <div className="space-y-6">
-      <section className="grid gap-6 lg:grid-cols-[1fr_0.7fr]">
+      <section>
         <div className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
           <p className="text-sm font-medium uppercase tracking-[0.2em] text-teal-700">
             Search summary
           </p>
-          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">{query}</h2>
+          <h2 className="mt-2 text-3xl font-semibold tracking-tight text-slate-950">
+            {query || "No search entered"}
+          </h2>
           <p className="mt-3 text-sm leading-6 text-slate-600">
-            {search.data?.results.length ?? 0} ranked opportunities with explainable scoring, coordinator
-            recommendations, and next-step plans.
+            {query
+              ? `${search.data?.results.length ?? 0} ranked opportunities with explainable scoring, coordinator recommendations, and next-step plans.`
+              : "Enter a query on the search page to run a live ranking."}
           </p>
           {Object.keys(filters).length > 0 ? (
             <div className="mt-4 flex flex-wrap gap-2">
@@ -72,44 +73,15 @@ export function ResultsWorkspace() {
             </div>
           ) : null}
         </div>
-
-        <section className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
-          <p className="text-sm font-medium uppercase tracking-[0.2em] text-slate-600">
-            Query expansion review
-          </p>
-          <div className="mt-4 space-y-3">
-            {search.data?.suggestedExpansions.map((item) => {
-              const selected = selectedExpansions.includes(item.term);
-              return (
-                <label
-                  key={item.term}
-                  className="flex items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    onChange={() =>
-                      setApprovedExpansions((current) => {
-                        const base = current ?? search.data?.acceptedExpansions ?? [];
-                        return base.includes(item.term)
-                          ? base.filter((value) => value !== item.term)
-                          : [...base, item.term];
-                      })
-                    }
-                    className="mt-1"
-                  />
-                  <div>
-                    <p className="font-semibold text-slate-950">{item.term}</p>
-                    <p className="mt-1 text-xs leading-5 text-slate-500">{item.reason}</p>
-                  </div>
-                </label>
-              );
-            })}
-          </div>
-        </section>
       </section>
 
       <CaveatBanner text={dataset.meta.caveat} />
+
+      {!query ? (
+        <section className="rounded-[32px] border border-amber-200 bg-amber-50 p-8 text-sm leading-6 text-amber-950 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+          No search query was provided. Go back to the search page and enter a term first.
+        </section>
+      ) : null}
 
       {search.isLoading ? (
         <section className="rounded-[32px] border border-slate-200 bg-white p-10 text-sm text-slate-600 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
@@ -134,7 +106,7 @@ export function ResultsWorkspace() {
         </section>
       ) : null}
 
-      {search.data?.results.map((result) => (
+      {query && search.data?.results.map((result) => (
         <OpportunityCard key={result.topic.id} result={result} />
       ))}
     </div>

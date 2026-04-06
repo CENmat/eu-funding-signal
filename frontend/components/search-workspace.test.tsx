@@ -13,12 +13,14 @@ describe("SearchWorkspace", () => {
     sessionStorage.clear();
   });
 
-  it("starts without hidden deadline or semiconductor consortium defaults", () => {
+  it("starts blank without hidden defaults or preset keyword buttons", () => {
     render(<SearchWorkspace />);
 
+    expect(screen.getByLabelText("Keyword, phrase, or search string")).toHaveValue("");
     expect(screen.getByLabelText("Deadline window (days)")).toHaveValue("");
     expect(screen.getByPlaceholderText("Organisation name")).toHaveValue("");
     expect(screen.queryByDisplayValue("imec")).not.toBeInTheDocument();
     expect(screen.queryByDisplayValue("Fraunhofer IZM")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "interposer" })).not.toBeInTheDocument();
   });
 });
