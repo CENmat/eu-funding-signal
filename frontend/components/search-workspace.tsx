@@ -160,14 +160,21 @@ export function SearchWorkspace() {
               </select>
             </label>
             <label className="space-y-2 text-sm text-slate-700">
-              <span>Deadline window (days)</span>
+              <span>Deadline within (days)</span>
               <input
+                type="number"
+                min="0"
+                step="1"
                 value={filters.deadlineWindowDays}
                 onChange={(event) =>
                   setFilters((current) => ({ ...current, deadlineWindowDays: event.target.value }))
                 }
                 className="w-full rounded-2xl border border-slate-300 bg-white px-4 py-3"
+                placeholder="Leave blank for any deadline"
               />
+              <p className="text-xs leading-5 text-slate-500">
+                Leave blank for any deadline. Enter `0` for topics due today only.
+              </p>
             </label>
             <label className="space-y-2 text-sm text-slate-700">
               <span>Coordinator country</span>

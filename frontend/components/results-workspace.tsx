@@ -13,6 +13,18 @@ const STORAGE_KEYS = {
   candidates: "efs:candidates:v2",
 };
 
+function formatFilterLabel(key: string, value: unknown) {
+  if (key === "deadlineWindowDays") {
+    const numeric = Number(value);
+    const label = Number.isFinite(numeric) && numeric === 0
+      ? "Due today only"
+      : `Within ${String(value)} days`;
+    return `Deadline: ${label}`;
+  }
+
+  return `${key}: ${String(value)}`;
+}
+
 export function ResultsWorkspace() {
   const dataset = loadDemoDataset();
   const searchParams = useSearchParams();
@@ -69,7 +81,7 @@ export function ResultsWorkspace() {
                     key={key}
                     className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.14em] text-slate-600"
                   >
-                    {key}: {String(value)}
+                    {formatFilterLabel(key, value)}
                   </span>
                 ))}
             </div>

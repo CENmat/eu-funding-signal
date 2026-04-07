@@ -120,6 +120,18 @@ describe("official-data SEDIA record filtering", () => {
     expect(__test__.daysUntil(past)).toBe(-3);
   });
 
+  it("treats zero deadline windows as valid filters while blank means no filter", () => {
+    expect(__test__.deadlineWindowValue("")).toBeUndefined();
+    expect(__test__.deadlineWindowValue("0")).toBe(0);
+    expect(__test__.deadlineWindowValue("00")).toBe(0);
+    expect(__test__.deadlineWindowValue("30")).toBe(30);
+  });
+
+  it("treats a zero-day deadline as an active narrowing filter", () => {
+    expect(__test__.hasActiveNarrowingFilters({ deadlineWindowDays: "0" })).toBe(true);
+    expect(__test__.hasActiveNarrowingFilters({ deadlineWindowDays: "" })).toBe(false);
+  });
+
   it("does not auto-fallback to closed topics unless the user enabled closed analogues", () => {
     expect(
       __test__.shouldUseClosedFallback(

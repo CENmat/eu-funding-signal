@@ -1,7 +1,7 @@
 // @ts-nocheck
 
 import { JSDOM } from "jsdom";
-import { searchOfficialData } from "../lib/official-data.ts";
+import { __test__, searchOfficialData } from "../lib/official-data.ts";
 import { formatDeadlineStatus } from "../lib/format.ts";
 
 const { window } = new JSDOM("");
@@ -133,7 +133,7 @@ async function main() {
   for (const query of queries) {
     const response = await searchOfficialData({
       query,
-      filters: deadlineWindowDays
+      filters: deadlineWindowDays !== undefined
         ? { deadlineWindowDays }
         : {},
     });
@@ -142,6 +142,9 @@ async function main() {
     const hasSourceLinks = topResults.every((result) => Boolean(result.topic.sourceUrl));
     const hasAnchoredTopMatch = containsAnchor(query, topTexts);
     const hasDeadline = topResults.every((result) => Boolean(result.topic.deadline));
+    const respectsDeadlineWindow =
+      deadlineWindowDays === undefined ||
+      response.results.every((result) => __test__.daysUntil(result.topic.deadline) <= deadlineWindowDays);
     const topLanguage = response.results[0]?.topic.sourceLanguage;
 
     console.log(
@@ -176,6 +179,9 @@ async function main() {
     }
     if (!hasDeadline) {
       failures.push(`${query}: one of the top results is missing a deadline`);
+    }
+    if (!respectsDeadlineWindow) {
+      failures.push(`${query}: at least one result exceeded the deadline window`);
     }
     if (!hasAnchoredTopMatch) {
       failures.push(`${query}: top results did not retain the query anchor term`);

@@ -521,12 +521,12 @@ function hasActiveNarrowingFilters(filters: SearchFilters) {
   return Boolean(
     filters.programme ||
       filters.actionType ||
-      filters.deadlineWindowDays ||
-      filters.minimumBudget ||
-      filters.maximumBudget ||
+      deadlineWindowValue(filters.deadlineWindowDays) !== undefined ||
+      numberValue(filters.minimumBudget) !== undefined ||
+      numberValue(filters.maximumBudget) !== undefined ||
       filters.coordinatorCountry ||
-      filters.minimumConsortiumSize ||
-      filters.maximumConsortiumSize,
+      numberValue(filters.minimumConsortiumSize) !== undefined ||
+      numberValue(filters.maximumConsortiumSize) !== undefined,
   );
 }
 
@@ -1923,7 +1923,7 @@ function applyResultFilters(result: SearchResult, filters: SearchFilters) {
   if (maximumBudget !== undefined && result.topic.indicativeBudgetEur > maximumBudget) {
     return false;
   }
-  const deadlineWindowDays = numberValue(filters.deadlineWindowDays);
+  const deadlineWindowDays = deadlineWindowValue(filters.deadlineWindowDays);
   if (
     deadlineWindowDays !== undefined &&
     result.topic.status === "open" &&
@@ -2359,6 +2359,14 @@ function stringValue(value: unknown) {
 function numberValue(value: unknown) {
   const numeric = Number(value);
   return Number.isFinite(numeric) && numeric > 0 ? numeric : undefined;
+}
+
+function deadlineWindowValue(value: unknown) {
+  if (typeof value === "string" && value.trim() === "") {
+    return undefined;
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
 }
 
 function splitTerms(value?: string) {
@@ -3097,7 +3105,9 @@ function uniqueBy<T>(values: T[], selector: (value: T) => string) {
 export const __test__ = {
   buildDirectSearchVariants,
   buildAnchoredCurrentVariants,
+  deadlineWindowValue,
   daysUntil,
+  hasActiveNarrowingFilters,
   isGrantTopicRecord,
   mergeRawTopic,
   shouldUseClosedFallback,
