@@ -437,10 +437,11 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
   const readableCurrentResults = rawCurrentResults.filter((result) =>
     isPreferredDisplayLanguage(result.topic),
   );
+  const activeNarrowingFilters = hasActiveNarrowingFilters(filters);
   const currentResultsSource =
-    englishTaggedCurrentResults.length >= 2
+    englishTaggedCurrentResults.length >= (activeNarrowingFilters ? 1 : 2)
       ? englishTaggedCurrentResults
-      : readableCurrentResults.length >= 2
+      : readableCurrentResults.length >= (activeNarrowingFilters ? 1 : 2)
         ? readableCurrentResults
         : rawCurrentResults;
   const currentResults = currentResultsSource.map((result, index) => ({
@@ -466,10 +467,12 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
     })
     .map((result, index) => ({ ...result, rank: index + 1 }));
 
-  const weakCurrentWindow = currentResults.length <= 4;
-  const useClosedFallback =
-    currentResults.length === 0 ||
-    (weakCurrentWindow && !hasStrongCurrentMatch(query, currentResults[0]) && closedFallbackResults.length > 0);
+  const useClosedFallback = shouldUseClosedFallback(
+    filters,
+    query,
+    currentResults,
+    closedFallbackResults,
+  );
   const displayResults = (useClosedFallback ? closedFallbackResults : currentResults).slice(0, 12);
 
   rememberOrganisationDetails(
@@ -490,6 +493,36 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
     acceptedExpansions,
     results: displayResults,
   };
+}
+
+function shouldUseClosedFallback(
+  filters: SearchFilters,
+  query: string,
+  currentResults: SearchResult[],
+  closedFallbackResults: SearchResult[],
+) {
+  if (!filters.includeRecentClosed || closedFallbackResults.length === 0) {
+    return false;
+  }
+
+  const weakCurrentWindow = currentResults.length <= 4;
+  return (
+    currentResults.length === 0 ||
+    (weakCurrentWindow && !hasStrongCurrentMatch(query, currentResults[0]))
+  );
+}
+
+function hasActiveNarrowingFilters(filters: SearchFilters) {
+  return Boolean(
+    filters.programme ||
+      filters.actionType ||
+      filters.deadlineWindowDays ||
+      filters.minimumBudget ||
+      filters.maximumBudget ||
+      filters.coordinatorCountry ||
+      filters.minimumConsortiumSize ||
+      filters.maximumConsortiumSize,
+  );
 }
 
 function buildLiveResult(args: {
@@ -3031,4 +3064,5 @@ export const __test__ = {
   daysUntil,
   isGrantTopicRecord,
   mergeRawTopic,
+  shouldUseClosedFallback,
 };
