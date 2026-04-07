@@ -10,7 +10,7 @@ import { CaveatBanner } from "@/components/caveat-banner";
 const DATASET = loadDemoDataset();
 const APP_MODE = getAppMode();
 const STORAGE_KEYS = {
-  filters: "efs:filters:v2",
+  filters: "efs:filters:v3",
   candidates: "efs:candidates:v2",
 };
 
@@ -160,7 +160,7 @@ export function SearchWorkspace() {
               </select>
             </label>
             <label className="space-y-2 text-sm text-slate-700">
-              <span>Deadline within (days)</span>
+              <span>Minimum days until deadline</span>
               <input
                 type="number"
                 min="0"
@@ -173,7 +173,7 @@ export function SearchWorkspace() {
                 placeholder="Leave blank for any deadline"
               />
               <p className="text-xs leading-5 text-slate-500">
-                Leave blank for any deadline. Enter `0` for topics due today only.
+                Leave blank for any deadline. Enter `30` to require at least 30 days remaining.
               </p>
             </label>
             <label className="space-y-2 text-sm text-slate-700">

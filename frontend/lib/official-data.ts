@@ -518,10 +518,11 @@ function shouldUseClosedFallback(
 }
 
 function hasActiveNarrowingFilters(filters: SearchFilters) {
+  const deadlineWindowDays = deadlineWindowValue(filters.deadlineWindowDays);
   return Boolean(
     filters.programme ||
       filters.actionType ||
-      deadlineWindowValue(filters.deadlineWindowDays) !== undefined ||
+      (deadlineWindowDays !== undefined && deadlineWindowDays > 0) ||
       numberValue(filters.minimumBudget) !== undefined ||
       numberValue(filters.maximumBudget) !== undefined ||
       filters.coordinatorCountry ||
@@ -1927,7 +1928,7 @@ function applyResultFilters(result: SearchResult, filters: SearchFilters) {
   if (
     deadlineWindowDays !== undefined &&
     result.topic.status === "open" &&
-    daysUntil(result.topic.deadline) > deadlineWindowDays
+    daysUntil(result.topic.deadline) < deadlineWindowDays
   ) {
     return false;
   }

@@ -1007,7 +1007,7 @@ function applyTopicFilters(topic: Topic, filters?: SearchFilters) {
       return false;
     }
   }
-  if (filters.deadlineWindowDays !== undefined && daysUntil(topic.deadline) > filters.deadlineWindowDays) {
+  if (filters.deadlineWindowDays !== undefined && daysUntil(topic.deadline) < filters.deadlineWindowDays) {
     return false;
   }
   return true;

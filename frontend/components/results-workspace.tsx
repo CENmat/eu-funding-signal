@@ -9,7 +9,7 @@ import { CaveatBanner } from "@/components/caveat-banner";
 import { OpportunityCard } from "@/components/opportunity-card";
 
 const STORAGE_KEYS = {
-  filters: "efs:filters:v2",
+  filters: "efs:filters:v3",
   candidates: "efs:candidates:v2",
 };
 
@@ -17,8 +17,8 @@ function formatFilterLabel(key: string, value: unknown) {
   if (key === "deadlineWindowDays") {
     const numeric = Number(value);
     const label = Number.isFinite(numeric) && numeric === 0
-      ? "Due today only"
-      : `Within ${String(value)} days`;
+      ? "Any future deadline"
+      : `At least ${String(value)} days away`;
     return `Deadline: ${label}`;
   }
 

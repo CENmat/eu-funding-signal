@@ -7,10 +7,10 @@ describe("searchDemoData", () => {
     expect(result.results[0]?.topic.id).toBe("topic_interposer_2026");
   });
 
-  it("applies a zero-day deadline filter instead of treating it as unset", () => {
+  it("requires a minimum number of days remaining before the deadline", () => {
     const result = searchDemoData({
       query: "interposer",
-      filters: { deadlineWindowDays: 0 },
+      filters: { deadlineWindowDays: 200 },
     });
 
     expect(result.results).toHaveLength(0);

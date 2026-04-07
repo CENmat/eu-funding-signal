@@ -127,8 +127,9 @@ describe("official-data SEDIA record filtering", () => {
     expect(__test__.deadlineWindowValue("30")).toBe(30);
   });
 
-  it("treats a zero-day deadline as an active narrowing filter", () => {
-    expect(__test__.hasActiveNarrowingFilters({ deadlineWindowDays: "0" })).toBe(true);
+  it("treats only positive minimum-deadline thresholds as narrowing filters", () => {
+    expect(__test__.hasActiveNarrowingFilters({ deadlineWindowDays: "0" })).toBe(false);
+    expect(__test__.hasActiveNarrowingFilters({ deadlineWindowDays: "30" })).toBe(true);
     expect(__test__.hasActiveNarrowingFilters({ deadlineWindowDays: "" })).toBe(false);
   });
 
