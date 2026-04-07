@@ -10,6 +10,7 @@ import type {
   Project,
   RankedCoordinator,
   ScenarioComparison,
+  SearchDiagnostics,
   SearchResponse,
   SearchResult,
   Topic,
@@ -236,12 +237,31 @@ export async function searchOfficialData(request: SearchRequest): Promise<Search
 
   const cached = responseCache.get(cacheKey);
   if (cached) {
-    return cached;
+    return cached.then((response) => ({
+      ...response,
+      diagnostics: response.diagnostics
+        ? {
+            ...response.diagnostics,
+            responseCache: "hit",
+          }
+        : response.diagnostics,
+    }));
   }
 
   const promise = buildOfficialSearchResponse(request);
   responseCache.set(cacheKey, promise);
   return promise;
+}
+
+export function clearOfficialSearchCaches() {
+  responseCache.clear();
+  sediaSearchCache.clear();
+  cordisSearchCache.clear();
+  cordisXmlCache.clear();
+  topicDetailCache.clear();
+  organisationDetailCache.clear();
+  safeStorageRemove(STORAGE_KEYS.topicDetails);
+  safeStorageRemove(STORAGE_KEYS.organisationDetails);
 }
 
 export async function getOfficialTopicDetail(
@@ -426,13 +446,15 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
     topicHits = [...topicHits, ...(await fetchSediaTopics(currentBoostVariants))];
   }
 
-  const currentTopics = extractCurrentTopics(normalizeSediaTopics(topicHits));
+  let normalizedTopics = normalizeSediaTopics(topicHits);
+  let currentTopics = extractCurrentTopics(normalizedTopics);
   const cordisSearchResults = await fetchCordisSearch(query);
   const candidateProjects = await fetchCordisProjects(query, [], cordisSearchResults);
-  let fallbackTopics = normalizeSediaTopics(topicHits);
+  let fallbackTopics = normalizedTopics;
+  let derivedVariants: string[] = [];
 
   if (countCurrentTopics(currentTopics) < SEDIA_MIN_CURRENT_RESULTS) {
-    const derivedVariants = buildPublicDataFallbackVariants(
+    derivedVariants = buildPublicDataFallbackVariants(
       query,
       topicHits,
       cordisSearchResults,
@@ -442,7 +464,9 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
     );
     if (derivedVariants.length > 0) {
       topicHits = [...topicHits, ...(await fetchSediaTopics(derivedVariants))];
-      fallbackTopics = normalizeSediaTopics(topicHits);
+      normalizedTopics = normalizeSediaTopics(topicHits);
+      currentTopics = extractCurrentTopics(normalizedTopics);
+      fallbackTopics = normalizedTopics;
     }
   }
 
@@ -510,6 +534,29 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
     query,
   );
 
+  const diagnostics: SearchDiagnostics = {
+    appMode: "live_public",
+    retrievalSource: "Funding & Tenders public search API plus CORDIS public project data",
+    queryOperator: queryIntent.operator,
+    queryGroups: queryIntent.groups,
+    searchVariants: directSearchVariants,
+    currentBoostVariants,
+    fallbackVariants: derivedVariants,
+    sediaRawHitCount: topicHits.length,
+    normalizedGrantTopicCount: normalizedTopics.length,
+    currentTopicCount: currentTopics.length,
+    currentResultCount: currentResults.length,
+    closedFallbackCount: closedFallbackResults.length,
+    cordisProjectCount: candidateProjects.length,
+    usedClosedFallback: useClosedFallback,
+    responseCache: "miss",
+    localResultJsonUsed: false,
+    localSeedUsageNote:
+      "No local JSON search-result file is used for live hit retrieval. The seeded dataset is still used in live mode for default score weights and a small cached programme-baseline layer, not for topic-hit collection.",
+    cacheScopeNote:
+      "Live search keeps in-memory browser-session caches for identical queries and public API responses. Topic and organisation detail caches are stored in sessionStorage, but ranked search hits are not loaded from a saved local JSON results file.",
+  };
+
   return {
     query,
     normalizedQuery,
@@ -520,6 +567,7 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
     suggestedExpansions,
     acceptedExpansions,
     results: displayResults,
+    diagnostics,
   };
 }
 
@@ -2897,6 +2945,17 @@ function safeStorageRead<T>(key: string) {
     return JSON.parse(raw) as T;
   } catch {
     return undefined;
+  }
+}
+
+function safeStorageRemove(key: string) {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    sessionStorage.removeItem(key);
+  } catch {
+    // Ignore storage errors on cache cleanup.
   }
 }
 

@@ -3,11 +3,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";
-import { loadDemoDataset, loadSearchResults } from "@/lib/api";
-import type { CandidatePartner, SearchResponse } from "@/lib/types";
+import { clearSearchCaches, loadSearchResults } from "@/lib/api";
+import type { CandidatePartner, SearchDiagnostics, SearchResponse } from "@/lib/types";
 import { CaveatBanner } from "@/components/caveat-banner";
 import { OpportunityCard } from "@/components/opportunity-card";
 
+const CAVEAT_TEXT = "This estimate is based on public funded-project data, public programme statistics, and historical consortium patterns. It does not include rejected proposals or private evaluator feedback. Treat this as decision support, not a guaranteed chance of success.";
 const STORAGE_KEYS = {
   filters: "efs:filters:v4",
   candidates: "efs:candidates:v2",
@@ -28,8 +29,57 @@ function formatFilterLabel(key: string, value: unknown) {
   return `${key}: ${String(value)}`;
 }
 
+function formatTraceValue(value: string | string[] | number | boolean | undefined) {
+  if (Array.isArray(value)) {
+    return value.length > 0 ? value.join(", ") : "None";
+  }
+  if (typeof value === "boolean") {
+    return value ? "Yes" : "No";
+  }
+  return value ?? "Unknown";
+}
+
+function SearchTrace({ diagnostics }: { diagnostics: SearchDiagnostics }) {
+  const traceRows: Array<{ label: string; value: string | number | boolean | string[] | undefined }> = [
+    { label: "Retrieval source", value: diagnostics.retrievalSource },
+    { label: "Query logic", value: diagnostics.queryOperator === "and" ? "Match all terms (AND)" : "Match any terms (OR)" },
+    { label: "Query groups", value: diagnostics.queryGroups },
+    { label: "Funding & Tenders variants", value: diagnostics.searchVariants },
+    { label: "Current-boost variants", value: diagnostics.currentBoostVariants },
+    { label: "Fallback variants", value: diagnostics.fallbackVariants },
+    { label: "Raw Funding & Tenders hits", value: diagnostics.sediaRawHitCount },
+    { label: "Grant topic records after normalization", value: diagnostics.normalizedGrantTopicCount },
+    { label: "Current open/forthcoming topics", value: diagnostics.currentTopicCount },
+    { label: "Ranked current results", value: diagnostics.currentResultCount },
+    { label: "Closed analogue candidates", value: diagnostics.closedFallbackCount },
+    { label: "CORDIS analog projects", value: diagnostics.cordisProjectCount },
+    { label: "Closed fallback used", value: diagnostics.usedClosedFallback },
+    { label: "Response cache", value: diagnostics.responseCache },
+    { label: "Local search-result JSON used", value: diagnostics.localResultJsonUsed },
+  ];
+
+  return (
+    <details className="rounded-[32px] border border-slate-200 bg-white p-6 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+      <summary className="cursor-pointer text-sm font-semibold uppercase tracking-[0.2em] text-slate-600">
+        Search Trace
+      </summary>
+      <div className="mt-5 grid gap-4 lg:grid-cols-2">
+        {traceRows.map((row) => (
+          <div key={row.label} className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
+            <p className="text-slate-500">{row.label}</p>
+            <p className="mt-1 font-medium leading-6 text-slate-900">{formatTraceValue(row.value)}</p>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 space-y-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+        <p>{diagnostics.localSeedUsageNote}</p>
+        <p>{diagnostics.cacheScopeNote}</p>
+      </div>
+    </details>
+  );
+}
+
 export function ResultsWorkspace() {
-  const dataset = loadDemoDataset();
   const searchParams = useSearchParams();
   const query = (searchParams.get("q") ?? "").trim();
   const [candidates] = useState<CandidatePartner[]>(() => {
@@ -75,6 +125,18 @@ export function ResultsWorkspace() {
                 } with explainable scoring, coordinator recommendations, and next-step plans.`
               : "Enter a query on the search page to run a live ranking."}
           </p>
+          {query ? (
+            <button
+              type="button"
+              onClick={async () => {
+                clearSearchCaches();
+                await search.refetch();
+              }}
+              className="mt-4 rounded-full border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-800"
+            >
+              Refresh live sources
+            </button>
+          ) : null}
           {Object.keys(filters).length > 0 ? (
             <div className="mt-4 flex flex-wrap gap-2">
               {Object.entries(filters)
@@ -92,7 +154,9 @@ export function ResultsWorkspace() {
         </div>
       </section>
 
-      <CaveatBanner text={dataset.meta.caveat} />
+      <CaveatBanner text={CAVEAT_TEXT} />
+
+      {search.data?.diagnostics ? <SearchTrace diagnostics={search.data.diagnostics} /> : null}
 
       {!query ? (
         <section className="rounded-[32px] border border-amber-200 bg-amber-50 p-8 text-sm leading-6 text-amber-950 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">

@@ -8,6 +8,7 @@ import {
 } from "@/lib/engine";
 import {
   compareOfficialScenario,
+  clearOfficialSearchCaches,
   getOfficialAdminSnapshot,
   getOfficialOrganisationDetail,
   getOfficialTopicDetail,
@@ -124,4 +125,10 @@ export function loadDemoDataset() {
 
 export function getAppMode() {
   return appMode;
+}
+
+export function clearSearchCaches() {
+  if (appMode === "live_public") {
+    clearOfficialSearchCaches();
+  }
 }

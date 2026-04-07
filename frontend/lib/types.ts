@@ -160,6 +160,27 @@ export type SearchResult = {
   countryEvidenceSummary: string;
 };
 
+export type SearchDiagnostics = {
+  appMode: "live_public" | "demo" | "backend";
+  retrievalSource: string;
+  queryOperator: "or" | "and";
+  queryGroups: string[];
+  searchVariants: string[];
+  currentBoostVariants?: string[];
+  fallbackVariants?: string[];
+  sediaRawHitCount?: number;
+  normalizedGrantTopicCount?: number;
+  currentTopicCount?: number;
+  currentResultCount?: number;
+  closedFallbackCount?: number;
+  cordisProjectCount?: number;
+  usedClosedFallback?: boolean;
+  responseCache: "hit" | "miss";
+  localResultJsonUsed: boolean;
+  localSeedUsageNote: string;
+  cacheScopeNote: string;
+};
+
 export type SearchResponse = {
   query: string;
   normalizedQuery: string;
@@ -172,6 +193,7 @@ export type SearchResponse = {
   }>;
   acceptedExpansions: string[];
   results: SearchResult[];
+  diagnostics?: SearchDiagnostics;
 };
 
 export type TopicDetail = SearchResult & {

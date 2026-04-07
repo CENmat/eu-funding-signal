@@ -7,8 +7,9 @@ import { getAppMode, loadDemoDataset } from "@/lib/api";
 import type { CandidatePartner } from "@/lib/types";
 import { CaveatBanner } from "@/components/caveat-banner";
 
-const DATASET = loadDemoDataset();
 const APP_MODE = getAppMode();
+const DATASET = APP_MODE === "demo" ? loadDemoDataset() : undefined;
+const CAVEAT_TEXT = "This estimate is based on public funded-project data, public programme statistics, and historical consortium patterns. It does not include rejected proposals or private evaluator feedback. Treat this as decision support, not a guaranteed chance of success.";
 const STORAGE_KEYS = {
   filters: "efs:filters:v4",
   candidates: "efs:candidates:v2",
@@ -54,11 +55,11 @@ export function SearchWorkspace() {
   const [candidates, setCandidates] = useState<CandidatePartner[]>([{ ...EMPTY_CANDIDATE }]);
 
   const programmes = useMemo(
-    () => Array.from(new Set(DATASET.topics.map((topic) => topic.programme))).sort(),
+    () => Array.from(new Set((DATASET?.topics ?? []).map((topic) => topic.programme))).sort(),
     [],
   );
   const actionTypes = useMemo(
-    () => Array.from(new Set(DATASET.topics.map((topic) => topic.actionType))).sort(),
+    () => Array.from(new Set((DATASET?.topics ?? []).map((topic) => topic.actionType))).sort(),
     [],
   );
 
@@ -389,7 +390,7 @@ export function SearchWorkspace() {
           </div>
         </section>
 
-        <CaveatBanner text={DATASET.meta.caveat} />
+        <CaveatBanner text={CAVEAT_TEXT} />
       </aside>
     </div>
   );
