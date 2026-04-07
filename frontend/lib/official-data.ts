@@ -80,6 +80,11 @@ const FALLBACK_NOISE_TERMS = new Set([
   "technology",
   "tools",
 ]);
+const SPECIAL_QUERY_ALIASES: Record<string, string[]> = {
+  co2: ["carbon", "carbon dioxide", "decarbonisation", "emissions"],
+  h2: ["hydrogen"],
+  ghg: ["greenhouse gas", "greenhouse gases", "emissions", "decarbonisation"],
+};
 const SEDIA_SEARCH_ENDPOINT = "https://api.tech.ec.europa.eu/search-api/prod/rest/search";
 const SEDIA_PAGE_SIZE = 30;
 const SEDIA_MAX_PAGES = 8;
@@ -2380,6 +2385,7 @@ function buildDirectSearchVariants(query: string) {
   const tokens = tokenize(query).filter((token) => !TERM_STOPWORDS.has(token));
   const stemmedTokens = tokens.map((token) => singularSearchForm(token));
   const deinflectedTokens = tokens.map((token) => deinflectSearchForm(token));
+  const aliasVariants = buildSpecialAliasVariants(tokens);
 
   const variants = unique(
     [
@@ -2387,6 +2393,7 @@ function buildDirectSearchVariants(query: string) {
       query.includes(" ") ? `"${query}"` : "",
       stemmedTokens.join(" "),
       deinflectedTokens.join(" "),
+      ...aliasVariants,
       ...tokens.filter((token) => token.length >= 4),
       ...tokens.flatMap((token) => expandTokenSearchForms(token)),
     ].filter(Boolean),
@@ -2572,8 +2579,36 @@ function expandTokenSearchForms(token: string) {
       singularSearchForm(token),
       deinflectSearchForm(token),
       pluralSearchForm(token),
+      ...specialAliasTokens(token),
     ].filter((value) => value.length >= 3),
   );
+}
+
+function buildSpecialAliasVariants(tokens: string[]) {
+  const variants: string[] = [];
+
+  for (let index = 0; index < tokens.length; index += 1) {
+    const token = tokens[index];
+    for (const alias of specialAliasPhrases(token)) {
+      const aliasTokens = tokenize(alias);
+      if (aliasTokens.length === 0) {
+        continue;
+      }
+      const replaced = [...tokens.slice(0, index), ...aliasTokens, ...tokens.slice(index + 1)];
+      variants.push(replaced.join(" "));
+      variants.push(alias);
+    }
+  }
+
+  return unique(variants);
+}
+
+function specialAliasPhrases(token: string) {
+  return SPECIAL_QUERY_ALIASES[token] ?? [];
+}
+
+function specialAliasTokens(token: string) {
+  return specialAliasPhrases(token).flatMap((alias) => tokenize(alias));
 }
 
 function singularSearchForm(token: string) {
@@ -3060,6 +3095,7 @@ function uniqueBy<T>(values: T[], selector: (value: T) => string) {
 }
 
 export const __test__ = {
+  buildDirectSearchVariants,
   buildAnchoredCurrentVariants,
   daysUntil,
   isGrantTopicRecord,

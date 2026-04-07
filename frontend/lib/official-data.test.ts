@@ -90,6 +90,15 @@ describe("official-data SEDIA record filtering", () => {
     expect(variants.every((variant) => variant.includes("hydrogen"))).toBe(true);
   });
 
+  it("expands scientific shorthand like co2 into public-searchable variants", () => {
+    const variants = __test__.buildDirectSearchVariants("co2");
+
+    expect(variants).toContain("co2");
+    expect(variants).toContain("carbon");
+    expect(variants).toContain("carbon dioxide");
+    expect(variants).toContain("decarbonisation");
+  });
+
   it("returns signed day deltas for deadline handling", () => {
     const currentDate = new Date();
     const future = new Date(Date.UTC(
