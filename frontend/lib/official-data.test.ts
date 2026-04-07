@@ -99,6 +99,46 @@ describe("official-data SEDIA record filtering", () => {
     expect(variants).toContain("decarbonisation");
   });
 
+  it("keeps comma-separated concepts as separate live-search variants", () => {
+    const variants = __test__.buildDirectSearchVariants(
+      "semiconductor, chips, optics, interposer, atomic layer deposition, lab on a chip",
+      "or",
+    );
+
+    expect(variants).toContain("semiconductor");
+    expect(variants).toContain("chips");
+    expect(variants).toContain("optics");
+    expect(variants).toContain("interposer");
+    expect(variants).toContain("atomic layer deposition");
+    expect(variants).toContain("lab on a chip");
+  });
+
+  it("applies OR and AND query logic across separate search concepts", () => {
+    const interposerTopic = {
+      id: "topic_interposer",
+      callId: "HORIZON-CL4-TEST",
+      topicId: "HORIZON-CL4-TEST-01",
+      title: "Interposer-based heterogeneous integration for resilient European chiplet supply chains",
+      description: "Advanced packaging and interposer integration for chiplet systems.",
+      programme: "Horizon Europe Cluster 4",
+      actionType: "RIA",
+      fundingType: "grant",
+      status: "open" as const,
+      deadline: "2026-09-24",
+      indicativeBudgetEur: 20000000,
+      keywords: ["interposer", "advanced packaging", "chiplet"],
+      sourceUrl: "https://example.com/interposer",
+      lastFetchedAt: "2026-04-07T00:00:00Z",
+    };
+
+    const orIntent = __test__.buildQueryIntent("interposer, photonics", "or");
+    const andIntent = __test__.buildQueryIntent("interposer, photonics", "and");
+
+    expect(__test__.queryIntentGroupCoverage(orIntent, interposerTopic)).toBe(0.5);
+    expect(__test__.passesQueryIntent(orIntent, __test__.queryIntentGroupCoverage(orIntent, interposerTopic))).toBe(true);
+    expect(__test__.passesQueryIntent(andIntent, __test__.queryIntentGroupCoverage(andIntent, interposerTopic))).toBe(false);
+  });
+
   it("returns signed day deltas for deadline handling", () => {
     const currentDate = new Date();
     const future = new Date(Date.UTC(

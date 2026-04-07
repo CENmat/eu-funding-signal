@@ -10,11 +10,12 @@ import { CaveatBanner } from "@/components/caveat-banner";
 const DATASET = loadDemoDataset();
 const APP_MODE = getAppMode();
 const STORAGE_KEYS = {
-  filters: "efs:filters:v3",
+  filters: "efs:filters:v4",
   candidates: "efs:candidates:v2",
 };
 
 type SearchFilters = {
+  queryOperator: "or" | "and";
   programme: string;
   actionType: string;
   includeRecentClosed: boolean;
@@ -34,6 +35,7 @@ const EMPTY_CANDIDATE: CandidatePartner = {
 };
 
 const DEFAULT_FILTERS: SearchFilters = {
+  queryOperator: "or",
   programme: "",
   actionType: "",
   includeRecentClosed: false,
@@ -119,8 +121,36 @@ export function SearchWorkspace() {
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             className="mt-2 w-full rounded-[24px] border border-slate-300 bg-slate-50 px-5 py-4 text-lg outline-none ring-0 transition focus:border-teal-400 focus:bg-white"
-            placeholder="Enter a technology, policy, market need, or topic phrase"
+            placeholder="Use commas to separate concepts, for example: semiconductor, optics, interposer"
           />
+          <div className="mt-4">
+            <span className="text-sm font-medium text-slate-700">Multi-term logic</span>
+            <div className="mt-2 flex flex-wrap gap-3">
+              <label className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700">
+                <input
+                  type="radio"
+                  name="query-operator"
+                  value="or"
+                  checked={filters.queryOperator === "or"}
+                  onChange={() => setFilters((current) => ({ ...current, queryOperator: "or" }))}
+                />
+                Match any term (OR)
+              </label>
+              <label className="inline-flex items-center gap-2 rounded-full border border-slate-300 bg-white px-4 py-2 text-sm text-slate-700">
+                <input
+                  type="radio"
+                  name="query-operator"
+                  value="and"
+                  checked={filters.queryOperator === "and"}
+                  onChange={() => setFilters((current) => ({ ...current, queryOperator: "and" }))}
+                />
+                Match all terms (AND)
+              </label>
+            </div>
+            <p className="mt-2 text-xs leading-5 text-slate-500">
+              Comma-separated phrases are treated as separate concepts. OR returns topics matching any concept. AND only returns topics that cover all concepts.
+            </p>
+          </div>
         </div>
 
         <div className="mt-8 rounded-[28px] border border-slate-200 bg-slate-50 p-5">

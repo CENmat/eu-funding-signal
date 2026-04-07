@@ -23,8 +23,24 @@ const REQUIRED_ROLES = [
   "end-user",
   "standardisation",
 ];
+const QUERY_STOPWORDS = new Set([
+  "and",
+  "for",
+  "from",
+  "in",
+  "into",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "with",
+]);
+
+type QueryOperator = "or" | "and";
 
 type SearchFilters = {
+  queryOperator?: QueryOperator;
   programme?: string;
   actionType?: string;
   openOnly?: boolean;
@@ -49,6 +65,14 @@ type SearchResponse = {
   suggestedExpansions: Array<{ term: string; reason: string; selectedDefault: boolean }>;
   acceptedExpansions: string[];
   results: SearchResult[];
+};
+
+type QueryIntent = {
+  operator: QueryOperator;
+  groups: string[];
+  groupTokens: string[][];
+  tokens: string[];
+  searchText: string;
 };
 
 type TopicContext = {
@@ -89,14 +113,15 @@ export function getDemoDataset(): DemoDataset {
 }
 
 export function searchDemoData(request: SearchRequest): SearchResponse {
-  const normalizedQuery = normalizeText(request.query);
+  const queryIntent = buildQueryIntent(request.query, request.filters?.queryOperator);
+  const normalizedQuery = normalizeText(queryIntent.searchText);
   const suggestedExpansions = suggestExpansions(normalizedQuery);
   const acceptedExpansions = request.approvedExpansions?.length
     ? request.approvedExpansions
     : suggestedExpansions.filter((term) => term.selectedDefault).map((term) => term.term);
 
-  const expandedQuery = [normalizedQuery, ...acceptedExpansions].filter(Boolean).join(" ");
-  const queryTokens = tokenize(expandedQuery);
+  const expandedQuery = [queryIntent.searchText, ...acceptedExpansions].filter(Boolean).join(" ");
+  const queryTokens = unique(tokenize(expandedQuery).filter((token) => !QUERY_STOPWORDS.has(token)));
   const queryEmbedding = embedText(expandedQuery);
 
   const results = dataset.topics
@@ -111,6 +136,7 @@ export function searchDemoData(request: SearchRequest): SearchResponse {
         candidatePartners: request.candidatePartners ?? [],
       }),
     )
+    .filter((result) => topicMatchesQueryIntent(queryIntent, result.topic))
     .sort((left, right) => right.finalScore - left.finalScore)
     .map((result, index) => ({ ...result, rank: index + 1 }));
 
@@ -1013,6 +1039,61 @@ function applyTopicFilters(topic: Topic, filters?: SearchFilters) {
   return true;
 }
 
+function buildQueryIntent(query: string, requestedOperator?: QueryOperator): QueryIntent {
+  const groups = splitQueryGroups(query);
+  const operator = requestedOperator ?? (/\sAND\s/.test(query) && !/\sOR\s/.test(query) ? "and" : "or");
+  const groupTokens = groups.map((group) =>
+    tokenize(group).filter((token) => token.length >= 2 && !QUERY_STOPWORDS.has(token)),
+  );
+
+  return {
+    operator,
+    groups,
+    groupTokens,
+    tokens: unique(groupTokens.flat()),
+    searchText: groups.join(" "),
+  };
+}
+
+function splitQueryGroups(query: string) {
+  const normalized = /\s(?:AND|OR)\s/.test(query)
+    ? query.replace(/\s(?:AND|OR)\s/g, "\n")
+    : query;
+  const groups = normalized
+    .split(/[,\n;]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return unique(groups.length > 0 ? groups : [query.trim()].filter(Boolean));
+}
+
+function topicMatchesQueryIntent(queryIntent: QueryIntent, topic: Topic) {
+  if (queryIntent.groups.length === 0) {
+    return true;
+  }
+
+  const topicText = normalizeText(composeTopicText(topic));
+  const topicTokens = tokenize(composeTopicText(topic));
+  const matchedGroups = queryIntent.groups.reduce((count, group, index) => {
+    const normalizedGroup = normalizeText(group);
+    const groupTokens = queryIntent.groupTokens[index] ?? [];
+    if (!normalizedGroup || groupTokens.length === 0) {
+      return count;
+    }
+    if (topicText.includes(normalizedGroup)) {
+      return count + 1;
+    }
+    const overlap = groupTokens.filter((token) => topicTokens.includes(token)).length;
+    const lexical = lexicalScore(groupTokens, topicTokens);
+    const semantic = semanticSimilarity(normalizedGroup, composeTopicText(topic));
+    const requiredOverlap = groupTokens.length === 1 ? 1 : Math.min(2, groupTokens.length);
+    return count + (overlap >= requiredOverlap || lexical >= 0.34 || semantic >= 0.62 ? 1 : 0);
+  }, 0);
+
+  return queryIntent.operator === "and"
+    ? matchedGroups === queryIntent.groups.length
+    : matchedGroups > 0;
+}
+
 function matchCandidateToOrganisation(candidate: CandidatePartner) {
   const lower = candidate.name.toLowerCase().trim();
   const aliasMatch = aliasByLowerName.get(lower);
@@ -1142,6 +1223,10 @@ function tokenize(text: string) {
   return normalizeText(text)
     .split(" ")
     .filter((token) => token.length > 1);
+}
+
+function unique<T>(values: T[]) {
+  return [...new Set(values)];
 }
 
 function embedText(text: string) {

@@ -9,11 +9,14 @@ import { CaveatBanner } from "@/components/caveat-banner";
 import { OpportunityCard } from "@/components/opportunity-card";
 
 const STORAGE_KEYS = {
-  filters: "efs:filters:v3",
+  filters: "efs:filters:v4",
   candidates: "efs:candidates:v2",
 };
 
 function formatFilterLabel(key: string, value: unknown) {
+  if (key === "queryOperator") {
+    return String(value) === "and" ? "Query logic: Match all terms (AND)" : "Query logic: Match any term (OR)";
+  }
   if (key === "deadlineWindowDays") {
     const numeric = Number(value);
     const label = Number.isFinite(numeric) && numeric === 0

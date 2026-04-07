@@ -33,6 +33,7 @@ const defaultQueries = [
 const queries = process.env.SMOKE_QUERIES
   ? process.env.SMOKE_QUERIES.split(",").map((query) => query.trim()).filter(Boolean)
   : defaultQueries;
+const queryOperator = process.env.SMOKE_QUERY_OPERATOR === "and" ? "and" : "or";
 const deadlineWindowDays = process.env.SMOKE_DEADLINE_WINDOW_DAYS
   ? Number(process.env.SMOKE_DEADLINE_WINDOW_DAYS)
   : undefined;
@@ -134,8 +135,8 @@ async function main() {
     const response = await searchOfficialData({
       query,
       filters: deadlineWindowDays !== undefined
-        ? { deadlineWindowDays }
-        : {},
+        ? { deadlineWindowDays, queryOperator }
+        : { queryOperator },
     });
     const topResults = response.results.slice(0, 3);
     const topTexts = topResults.map((result) => `${result.topic.title} ${result.topic.description}`);
@@ -151,6 +152,7 @@ async function main() {
       JSON.stringify(
         {
           query,
+          queryOperator,
           deadlineWindowDays,
           mode: response.resultMode,
           count: response.results.length,

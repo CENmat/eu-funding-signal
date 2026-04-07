@@ -17,6 +17,7 @@ describe("SearchWorkspace", () => {
     render(<SearchWorkspace />);
 
     expect(screen.getByLabelText("Keyword, phrase, or search string")).toHaveValue("");
+    expect(screen.getByRole("radio", { name: "Match any term (OR)" })).toBeChecked();
     expect(screen.getByPlaceholderText("Leave blank for any deadline")).toHaveValue(null);
     expect(screen.getByPlaceholderText("Organisation name")).toHaveValue("");
     expect(screen.queryByDisplayValue("imec")).not.toBeInTheDocument();

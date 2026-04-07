@@ -54,6 +54,10 @@ const TERM_STOPWORDS = new Set([
   "would",
   "could",
   "should",
+  "in",
+  "of",
+  "on",
+  "to",
 ]);
 const FALLBACK_NOISE_TERMS = new Set([
   "approaches",
@@ -89,7 +93,7 @@ const SEDIA_SEARCH_ENDPOINT = "https://api.tech.ec.europa.eu/search-api/prod/res
 const SEDIA_PAGE_SIZE = 30;
 const SEDIA_MAX_PAGES = 8;
 const SEDIA_MIN_CURRENT_RESULTS = 4;
-const SEARCH_VARIANT_LIMIT = 8;
+const SEARCH_VARIANT_LIMIT = 12;
 const FALLBACK_VARIANT_LIMIT = 6;
 const CORDIS_SEARCH_ENDPOINT = "https://cordis.europa.eu/api/search/results";
 const CORDIS_SEARCH_FIELDS = [
@@ -110,7 +114,10 @@ const STORAGE_KEYS = {
   organisationDetails: "efs:live-organisation-details",
 };
 
+type QueryOperator = "or" | "and";
+
 type SearchFilters = {
+  queryOperator?: QueryOperator;
   programme?: string;
   actionType?: string;
   includeRecentClosed?: boolean;
@@ -127,6 +134,15 @@ type SearchRequest = {
   filters?: Record<string, unknown>;
   approvedExpansions?: string[];
   candidatePartners?: CandidatePartner[];
+};
+
+type QueryIntent = {
+  raw: string;
+  operator: QueryOperator;
+  groups: string[];
+  groupTokens: string[][];
+  tokens: string[];
+  searchText: string;
 };
 
 type SupportingTerm = {
@@ -391,15 +407,21 @@ export async function getOfficialAdminSnapshot(): Promise<AdminSnapshot> {
 
 async function buildOfficialSearchResponse(request: SearchRequest): Promise<SearchResponse> {
   const query = request.query.trim();
-  const normalizedQuery = normalizeText(query);
   const filters = coerceFilters(request.filters);
+  const queryIntent = buildQueryIntent(query, filters.queryOperator);
+  const normalizedQuery = queryIntent.searchText;
 
   const suggestedExpansions: SupportingTerm[] = [];
   const acceptedExpansions: string[] = [];
 
-  const directSearchVariants = buildDirectSearchVariants(query);
+  const directSearchVariants = buildDirectSearchVariants(query, queryIntent.operator);
   let topicHits = await fetchSediaTopics(directSearchVariants);
-  const currentBoostVariants = buildAnchoredCurrentVariants(query, topicHits, directSearchVariants);
+  const currentBoostVariants = buildAnchoredCurrentVariants(
+    query,
+    topicHits,
+    directSearchVariants,
+    queryIntent.operator,
+  );
   if (currentBoostVariants.length > 0) {
     topicHits = [...topicHits, ...(await fetchSediaTopics(currentBoostVariants))];
   }
@@ -416,6 +438,7 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
       cordisSearchResults,
       candidateProjects,
       [...directSearchVariants, ...currentBoostVariants],
+      queryIntent.operator,
     );
     if (derivedVariants.length > 0) {
       topicHits = [...topicHits, ...(await fetchSediaTopics(derivedVariants))];
@@ -424,13 +447,13 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
   }
 
   const registry = buildLiveRegistry(candidateProjects);
-  const queryTokens = tokenize(query);
-  const queryEmbedding = embedText(query);
+  const queryTokens = queryIntent.tokens;
+  const queryEmbedding = embedText(queryIntent.searchText);
 
   const rawCurrentResults = buildRankedResults({
     topics: currentTopics,
     registry,
-    query,
+    queryIntent,
     queryTokens,
     queryEmbedding,
     candidatePartners: request.candidatePartners ?? [],
@@ -456,7 +479,7 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
   const closedFallbackResults = buildRankedResults({
     topics: fallbackTopics,
     registry,
-    query,
+    queryIntent,
     queryTokens,
     queryEmbedding,
     candidatePartners: request.candidatePartners ?? [],
@@ -474,7 +497,7 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
 
   const useClosedFallback = shouldUseClosedFallback(
     filters,
-    query,
+    queryIntent,
     currentResults,
     closedFallbackResults,
   );
@@ -502,7 +525,7 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
 
 function shouldUseClosedFallback(
   filters: SearchFilters,
-  query: string,
+  queryIntent: QueryIntent,
   currentResults: SearchResult[],
   closedFallbackResults: SearchResult[],
 ) {
@@ -513,7 +536,7 @@ function shouldUseClosedFallback(
   const weakCurrentWindow = currentResults.length <= 4;
   return (
     currentResults.length === 0 ||
-    (weakCurrentWindow && !hasStrongCurrentMatch(query, currentResults[0]))
+    (weakCurrentWindow && !hasStrongCurrentMatch(queryIntent, currentResults[0]))
   );
 }
 
@@ -684,7 +707,7 @@ function buildLiveResult(args: {
 function buildRankedResults(args: {
   topics: LiveTopic[];
   registry: LiveRegistry;
-  query: string;
+  queryIntent: QueryIntent;
   queryTokens: string[];
   queryEmbedding: number[];
   candidatePartners: CandidatePartner[];
@@ -694,13 +717,13 @@ function buildRankedResults(args: {
       buildLiveResult({
         topic,
         registry: args.registry,
-        query: args.query,
+        query: args.queryIntent.searchText,
         queryTokens: args.queryTokens,
         queryEmbedding: args.queryEmbedding,
         candidatePartners: args.candidatePartners,
       }),
     )
-    .filter((result) => passesTopicalGuard(args.query, result))
+    .filter((result) => passesTopicalGuard(args.queryIntent, result))
     .sort((left, right) => right.finalScore - left.finalScore);
 
   return prioritizePreferredDisplayLanguage(rankedResults);
@@ -1941,34 +1964,45 @@ function applyResultFilters(result: SearchResult, filters: SearchFilters) {
   return true;
 }
 
-function passesTopicalGuard(query: string, result: SearchResult) {
-  if (!hasQueryAnchorInTopic(query, result.topic)) {
+function passesTopicalGuard(queryIntent: QueryIntent, result: SearchResult) {
+  const groupCoverage = queryIntentGroupCoverage(queryIntent, result.topic);
+  if (!passesQueryIntent(queryIntent, groupCoverage)) {
     return false;
   }
-  const lexical = lexicalScore(tokenize(query), tokenize(composeTopicText(result.topic)));
-  const semantic = semanticSimilarity(query, composeTopicText(result.topic));
+  const lexical = lexicalScore(queryIntent.tokens, tokenize(composeTopicText(result.topic)));
+  const semantic = semanticSimilarity(queryIntent.searchText, composeTopicText(result.topic));
   const analogAlignment = result.scoreBreakdown.opportunity.analogAlignment;
-  return lexical >= 0.08 || semantic >= 0.6 || analogAlignment >= 0.68;
+  if (queryIntent.operator === "and") {
+    return lexical >= 0.14 || semantic >= 0.64 || analogAlignment >= 0.7;
+  }
+  return lexical >= 0.06 || semantic >= 0.58 || analogAlignment >= 0.68;
 }
 
-function hasStrongCurrentMatch(query: string, result: SearchResult | undefined) {
+function hasStrongCurrentMatch(queryIntent: QueryIntent, result: SearchResult | undefined) {
   if (!result) {
     return false;
   }
 
-  const queryTokens = tokenize(query);
-  if (!hasQueryAnchorInTopic(query, result.topic)) {
+  const groupCoverage = queryIntentGroupCoverage(queryIntent, result.topic);
+  if (!passesQueryIntent(queryIntent, groupCoverage)) {
     return false;
   }
-  const titleSignal = lexicalScore(queryTokens, tokenize(result.topic.title));
-  const requiredTitleSignal = queryTokens.length > 1 ? 0.56 : 0.5;
+  const titleSignal = lexicalScore(queryIntent.tokens, tokenize(result.topic.title));
+  const requiredTitleSignal =
+    queryIntent.operator === "and"
+      ? queryIntent.groups.length > 1
+        ? 0.24
+        : 0.5
+      : queryIntent.groups.length > 1
+        ? 0.16
+        : 0.5;
   const directSignal =
     titleSignal >= requiredTitleSignal ||
     (titleSignal >= 0.34 &&
       result.scoreBreakdown.opportunity.semantic >= 0.63 &&
       result.scoreBreakdown.opportunity.lexical >= 0.22);
 
-  return result.finalScore >= 48 && directSignal;
+  return result.finalScore >= 48 && directSignal && groupCoverage >= (queryIntent.operator === "and" ? 1 : 0.25);
 }
 
 function computeMissingRoles(
@@ -2341,6 +2375,7 @@ function composeProjectText(project: Project) {
 
 function coerceFilters(value?: Record<string, unknown>): SearchFilters {
   return {
+    queryOperator: coerceQueryOperator(value?.queryOperator),
     programme: stringValue(value?.programme),
     actionType: stringValue(value?.actionType),
     includeRecentClosed: Boolean(value?.includeRecentClosed),
@@ -2370,6 +2405,95 @@ function deadlineWindowValue(value: unknown) {
   return Number.isFinite(numeric) && numeric >= 0 ? numeric : undefined;
 }
 
+function coerceQueryOperator(value: unknown): QueryOperator {
+  return value === "and" ? "and" : "or";
+}
+
+function buildQueryIntent(query: string, requestedOperator?: QueryOperator): QueryIntent {
+  const groups = splitQueryGroups(query);
+  const operator = requestedOperator ?? inferQueryOperator(query);
+  const groupTokens = groups.map((group) =>
+    tokenize(group).filter((token) => token.length >= 2 && !TERM_STOPWORDS.has(token)),
+  );
+  const tokens = unique(groupTokens.flat());
+  const searchText = groups.join(" ");
+
+  return {
+    raw: query,
+    operator,
+    groups,
+    groupTokens,
+    tokens,
+    searchText,
+  };
+}
+
+function inferQueryOperator(query: string): QueryOperator {
+  return /\sAND\s/.test(query) && !/\sOR\s/.test(query) ? "and" : "or";
+}
+
+function splitQueryGroups(query: string) {
+  const normalized = /\s(?:AND|OR)\s/.test(query)
+    ? query.replace(/\s(?:AND|OR)\s/g, "\n")
+    : query;
+  const groups = normalized
+    .split(/[,\n;]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  return unique(groups.length > 0 ? groups : [query.trim()].filter(Boolean));
+}
+
+function passesQueryIntent(queryIntent: QueryIntent, groupCoverage: number) {
+  if (queryIntent.groups.length === 0) {
+    return true;
+  }
+  return queryIntent.operator === "and" ? groupCoverage >= 1 : groupCoverage > 0;
+}
+
+function queryIntentGroupCoverage(queryIntent: QueryIntent, topic: Topic) {
+  if (queryIntent.groups.length === 0) {
+    return 1;
+  }
+
+  const topicTokens = tokenize(`${topic.title} ${topic.description} ${topic.keywords.join(" ")}`);
+  const normalizedTopicText = normalizeText(
+    `${topic.title} ${topic.description} ${topic.keywords.join(" ")}`,
+  );
+  const matchedGroups = queryIntent.groups.reduce((count, group, index) => {
+    const groupTokens = queryIntent.groupTokens[index] ?? [];
+    return count + (topicMatchesQueryGroup(group, groupTokens, topicTokens, normalizedTopicText) ? 1 : 0);
+  }, 0);
+
+  return matchedGroups / Math.max(1, queryIntent.groups.length);
+}
+
+function topicMatchesQueryGroup(
+  group: string,
+  groupTokens: string[],
+  topicTokens: string[],
+  normalizedTopicText: string,
+) {
+  const normalizedGroup = normalizeText(group);
+  if (!normalizedGroup) {
+    return false;
+  }
+  if (normalizedTopicText.includes(normalizedGroup)) {
+    return true;
+  }
+  if (groupTokens.length === 0) {
+    return false;
+  }
+  if (groupTokens.length === 1) {
+    return hasExpandedAnchorToken(topicTokens, groupTokens[0]);
+  }
+
+  const matchedTokenCount = groupTokens.filter((token) => hasExpandedAnchorToken(topicTokens, token)).length;
+  const lexical = lexicalScore(groupTokens, topicTokens);
+  const semantic = semanticSimilarity(normalizedGroup, normalizedTopicText);
+
+  return lexical >= 0.34 || matchedTokenCount >= Math.min(2, groupTokens.length) || semantic >= 0.62;
+}
+
 function splitTerms(value?: string) {
   return (value ?? "")
     .split(/[;,]/)
@@ -2390,16 +2514,23 @@ function extractTerms(text: string) {
     .map(([token]) => token);
 }
 
-function buildDirectSearchVariants(query: string) {
-  const tokens = tokenize(query).filter((token) => !TERM_STOPWORDS.has(token));
+function buildDirectSearchVariants(query: string, requestedOperator?: QueryOperator) {
+  const queryIntent = buildQueryIntent(query, requestedOperator);
+  const tokens = queryIntent.tokens;
   const stemmedTokens = tokens.map((token) => singularSearchForm(token));
   const deinflectedTokens = tokens.map((token) => deinflectSearchForm(token));
   const aliasVariants = buildSpecialAliasVariants(tokens);
+  const groupVariants = unique(
+    queryIntent.groups.flatMap((group) =>
+      group.includes(" ") ? [group, `"${group}"`] : [group],
+    ),
+  );
 
   const variants = unique(
     [
+      ...groupVariants,
       query,
-      query.includes(" ") ? `"${query}"` : "",
+      queryIntent.groups.length <= 1 && query.includes(" ") ? `"${query}"` : "",
       stemmedTokens.join(" "),
       deinflectedTokens.join(" "),
       ...aliasVariants,
@@ -2417,10 +2548,15 @@ function buildPublicDataFallbackVariants(
   cordisSearchResults: CordisSearchResult[],
   candidateProjects: AnalogueProject[],
   excludedVariants: string[],
+  requestedOperator?: QueryOperator,
 ) {
-  const queryTokens = tokenize(query).filter((token) => !TERM_STOPWORDS.has(token));
-  const anchorToken =
-    [...queryTokens].sort((left, right) => right.length - left.length)[0] ?? queryTokens[0] ?? "";
+  const queryIntent = buildQueryIntent(query, requestedOperator);
+  const queryTokens = queryIntent.tokens;
+  const anchorTokens = unique(
+    queryIntent.groupTokens
+      .map((tokens) => [...tokens].sort((left, right) => right.length - left.length)[0])
+      .filter(Boolean),
+  );
   const excluded = new Set(excludedVariants.map((variant) => normalizeText(variant)));
   const phraseCounts = new Map<string, number>();
   const termCounts = new Map<string, number>();
@@ -2477,15 +2613,16 @@ function buildPublicDataFallbackVariants(
     .sort((left, right) => right.score - left.score)
     .map((entry) => entry.phrase);
 
-  const anchoredTerms = anchorToken
-    ? [...termCounts.entries()]
-        .map(([term, count]) => ({
-          term,
-          score: count + semanticSimilarity(query, term),
-        }))
-        .sort((left, right) => right.score - left.score)
-        .flatMap((entry) => [`${anchorToken} ${entry.term}`, `${entry.term} ${anchorToken}`])
-    : [];
+  const anchoredTerms = anchorTokens.flatMap((anchorToken) =>
+    [...termCounts.entries()]
+      .map(([term, count]) => ({
+        term,
+        score: count + semanticSimilarity(query, term),
+      }))
+      .sort((left, right) => right.score - left.score)
+      .slice(0, 4)
+      .flatMap((entry) => [`${anchorToken} ${entry.term}`, `${entry.term} ${anchorToken}`]),
+  );
   const standaloneTerms = [...termCounts.entries()]
     .map(([term, count]) => ({
       term,
@@ -2508,11 +2645,16 @@ function buildAnchoredCurrentVariants(
   query: string,
   rawTopicHits: RawSediaResult[],
   excludedVariants: string[],
+  requestedOperator?: QueryOperator,
 ) {
-  const queryTokens = tokenize(query).filter((token) => !TERM_STOPWORDS.has(token));
-  const anchorToken =
-    [...queryTokens].sort((left, right) => right.length - left.length)[0] ?? queryTokens[0];
-  if (!anchorToken) {
+  const queryIntent = buildQueryIntent(query, requestedOperator);
+  const queryTokens = queryIntent.tokens;
+  const anchorTokens = unique(
+    queryIntent.groupTokens
+      .map((tokens) => [...tokens].sort((left, right) => right.length - left.length)[0])
+      .filter(Boolean),
+  );
+  if (anchorTokens.length === 0) {
     return [];
   }
 
@@ -2546,7 +2688,7 @@ function buildAnchoredCurrentVariants(
         excluded.has(normalizedPhrase) ||
         phraseTokens.length < 2 ||
         phraseTokens.length > 4 ||
-        !hasExpandedAnchorToken(phraseTokens, anchorToken)
+        !anchorTokens.some((anchorToken) => hasExpandedAnchorToken(phraseTokens, anchorToken))
       ) {
         continue;
       }
@@ -2963,19 +3105,7 @@ function isCurrentTopic(topic: LiveTopic) {
 }
 
 function hasQueryAnchorInTopic(query: string, topic: Topic) {
-  const queryTokens = tokenize(query).filter((token) => !TERM_STOPWORDS.has(token));
-  if (queryTokens.length === 0) {
-    return true;
-  }
-
-  const anchorToken =
-    [...queryTokens].sort((left, right) => right.length - left.length)[0] ?? queryTokens[0];
-  if (!anchorToken || anchorToken.length < 3) {
-    return true;
-  }
-
-  const topicTokens = tokenize(`${topic.title} ${topic.description} ${topic.keywords.join(" ")}`);
-  return hasExpandedAnchorToken(topicTokens, anchorToken);
+  return queryIntentGroupCoverage(buildQueryIntent(query, "or"), topic) > 0;
 }
 
 function hasExpandedAnchorToken(tokens: string[], anchorToken: string) {
@@ -3104,11 +3234,14 @@ function uniqueBy<T>(values: T[], selector: (value: T) => string) {
 }
 
 export const __test__ = {
+  buildQueryIntent,
   buildDirectSearchVariants,
   buildAnchoredCurrentVariants,
   deadlineWindowValue,
   daysUntil,
   hasActiveNarrowingFilters,
+  queryIntentGroupCoverage,
+  passesQueryIntent,
   isGrantTopicRecord,
   mergeRawTopic,
   shouldUseClosedFallback,
