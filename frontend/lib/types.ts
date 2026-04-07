@@ -162,6 +162,8 @@ export type SearchResult = {
 export type SearchResponse = {
   query: string;
   normalizedQuery: string;
+  resultMode: "current" | "closed_fallback";
+  resultNote?: string;
   suggestedExpansions: Array<{
     term: string;
     reason: string;

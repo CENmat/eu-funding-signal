@@ -55,7 +55,9 @@ export function ResultsWorkspace() {
           </h2>
           <p className="mt-3 text-sm leading-6 text-slate-600">
             {query
-              ? `${search.data?.results.length ?? 0} ranked opportunities with explainable scoring, coordinator recommendations, and next-step plans.`
+              ? `${search.data?.results.length ?? 0} ranked ${
+                  search.data?.resultMode === "closed_fallback" ? "analogue opportunities" : "opportunities"
+                } with explainable scoring, coordinator recommendations, and next-step plans.`
               : "Enter a query on the search page to run a live ranking."}
           </p>
           {Object.keys(filters).length > 0 ? (
@@ -104,6 +106,12 @@ export function ResultsWorkspace() {
           No current open grant topics matched this search under the active filters. Tender and
           procurement notices are excluded. If you want historical analogues, go back and enable
           `Include recent closed topics for analogue evidence`.
+        </section>
+      ) : null}
+
+      {search.data?.resultMode === "closed_fallback" && search.data.results.length > 0 ? (
+        <section className="rounded-[32px] border border-amber-200 bg-amber-50 p-6 text-sm leading-6 text-amber-950 shadow-[0_24px_80px_rgba(15,23,42,0.08)]">
+          {search.data.resultNote}
         </section>
       ) : null}
 
