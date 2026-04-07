@@ -24,6 +24,7 @@ export type Topic = {
   keywords: string[];
   eligibilityText?: string;
   sourceUrl: string;
+  sourceLanguage?: string;
   lastFetchedAt: string;
 };
 

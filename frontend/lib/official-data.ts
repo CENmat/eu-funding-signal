@@ -82,7 +82,7 @@ const FALLBACK_NOISE_TERMS = new Set([
 ]);
 const SEDIA_SEARCH_ENDPOINT = "https://api.tech.ec.europa.eu/search-api/prod/rest/search";
 const SEDIA_PAGE_SIZE = 30;
-const SEDIA_MAX_PAGES = 6;
+const SEDIA_MAX_PAGES = 8;
 const SEDIA_MIN_CURRENT_RESULTS = 4;
 const SEARCH_VARIANT_LIMIT = 8;
 const FALLBACK_VARIANT_LIMIT = 6;
@@ -394,21 +394,27 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
 
   const directSearchVariants = buildDirectSearchVariants(query);
   let topicHits = await fetchSediaTopics(directSearchVariants);
+  const currentBoostVariants = buildAnchoredCurrentVariants(query, topicHits, directSearchVariants);
+  if (currentBoostVariants.length > 0) {
+    topicHits = [...topicHits, ...(await fetchSediaTopics(currentBoostVariants))];
+  }
+
+  const currentTopics = extractCurrentTopics(normalizeSediaTopics(topicHits));
   const cordisSearchResults = await fetchCordisSearch(query);
   const candidateProjects = await fetchCordisProjects(query, [], cordisSearchResults);
-  let liveTopics = normalizeSediaTopics(topicHits);
+  let fallbackTopics = normalizeSediaTopics(topicHits);
 
-  if (countCurrentTopics(liveTopics) < SEDIA_MIN_CURRENT_RESULTS) {
+  if (countCurrentTopics(currentTopics) < SEDIA_MIN_CURRENT_RESULTS) {
     const derivedVariants = buildPublicDataFallbackVariants(
       query,
       topicHits,
       cordisSearchResults,
       candidateProjects,
-      directSearchVariants,
+      [...directSearchVariants, ...currentBoostVariants],
     );
     if (derivedVariants.length > 0) {
       topicHits = [...topicHits, ...(await fetchSediaTopics(derivedVariants))];
-      liveTopics = normalizeSediaTopics(topicHits);
+      fallbackTopics = normalizeSediaTopics(topicHits);
     }
   }
 
@@ -416,24 +422,39 @@ async function buildOfficialSearchResponse(request: SearchRequest): Promise<Sear
   const queryTokens = tokenize(query);
   const queryEmbedding = embedText(query);
 
-  const results = liveTopics
-    .map((topic) =>
-      buildLiveResult({
-        topic,
-        registry,
-        query,
-        queryTokens,
-        queryEmbedding,
-        candidatePartners: request.candidatePartners ?? [],
-      }),
-    )
-    .filter((result) => passesTopicalGuard(query, result))
-    .sort((left, right) => right.finalScore - left.finalScore);
-
-  const currentResults = results
-    .filter((result) => applyResultFilters(result, filters))
-    .map((result, index) => ({ ...result, rank: index + 1 }));
-  const closedFallbackResults = results
+  const rawCurrentResults = buildRankedResults({
+    topics: currentTopics,
+    registry,
+    query,
+    queryTokens,
+    queryEmbedding,
+    candidatePartners: request.candidatePartners ?? [],
+  })
+    .filter((result) => applyResultFilters(result, filters));
+  const englishTaggedCurrentResults = rawCurrentResults.filter(
+    (result) => result.topic.sourceLanguage === "en",
+  );
+  const readableCurrentResults = rawCurrentResults.filter((result) =>
+    isPreferredDisplayLanguage(result.topic),
+  );
+  const currentResultsSource =
+    englishTaggedCurrentResults.length >= 2
+      ? englishTaggedCurrentResults
+      : readableCurrentResults.length >= 2
+        ? readableCurrentResults
+        : rawCurrentResults;
+  const currentResults = currentResultsSource.map((result, index) => ({
+    ...result,
+    rank: index + 1,
+  }));
+  const closedFallbackResults = buildRankedResults({
+    topics: fallbackTopics,
+    registry,
+    query,
+    queryTokens,
+    queryEmbedding,
+    candidatePartners: request.candidatePartners ?? [],
+  })
     .filter((result) => {
       if (result.topic.status !== "closed" && !isPastDeadline(result.topic.deadline)) {
         return false;
@@ -529,7 +550,8 @@ function buildLiveResult(args: {
     opportunityScore * dataset.scoreWeights.opportunity +
     coordinatorScore * dataset.scoreWeights.coordinator +
     consortiumScore * dataset.scoreWeights.consortium +
-    coverageScore * dataset.scoreWeights.coverage;
+    coverageScore * dataset.scoreWeights.coverage -
+    languagePenalty(args.topic);
   const probability = buildProbabilityView(
     args.topic,
     finalScore,
@@ -620,6 +642,31 @@ function buildLiveResult(args: {
   return result;
 }
 
+function buildRankedResults(args: {
+  topics: LiveTopic[];
+  registry: LiveRegistry;
+  query: string;
+  queryTokens: string[];
+  queryEmbedding: number[];
+  candidatePartners: CandidatePartner[];
+}) {
+  const rankedResults = args.topics
+    .map((topic) =>
+      buildLiveResult({
+        topic,
+        registry: args.registry,
+        query: args.query,
+        queryTokens: args.queryTokens,
+        queryEmbedding: args.queryEmbedding,
+        candidatePartners: args.candidatePartners,
+      }),
+    )
+    .filter((result) => passesTopicalGuard(args.query, result))
+    .sort((left, right) => right.finalScore - left.finalScore);
+
+  return prioritizePreferredDisplayLanguage(rankedResults);
+}
+
 function buildTopicContext(
   topic: LiveTopic,
   query: string,
@@ -682,10 +729,6 @@ async function fetchSediaTopics(searchTexts: string[]): Promise<RawSediaResult[]
       }
 
       collected.push(...pageResults);
-
-      if (countCurrentTopics(normalizeSediaTopics(collected)) >= SEDIA_MIN_CURRENT_RESULTS) {
-        return collected;
-      }
 
       if (pageResults.length < SEDIA_PAGE_SIZE) {
         break;
@@ -752,6 +795,10 @@ function normalizeSediaTopics(rawResults: RawSediaResult[]): LiveTopic[] {
     });
 }
 
+function extractCurrentTopics(topics: LiveTopic[]) {
+  return topics.filter((topic) => isCurrentTopic(topic));
+}
+
 function looksLikeTopic(item: RawSediaResult) {
   const identifier = firstString(item.metadata?.identifier) ?? extractTopicIdFromUrl(item.url);
   const callId = firstString(item.metadata?.callIdentifier);
@@ -790,23 +837,62 @@ function isGrantTopicRecord(item: RawSediaResult) {
 }
 
 function mergeRawTopic(left: RawSediaResult, right: RawSediaResult): RawSediaResult {
-  const mergedMetadata = { ...(left.metadata ?? {}) };
-  for (const [key, value] of Object.entries(right.metadata ?? {})) {
-    mergedMetadata[key] = unique([...(mergedMetadata[key] ?? []), ...value]);
+  const primary = scoreRawTopicVariant(right) > scoreRawTopicVariant(left) ? right : left;
+  const secondary = primary === right ? left : right;
+  const mergedMetadata = { ...(primary.metadata ?? {}) };
+
+  for (const key of unique([
+    ...Object.keys(primary.metadata ?? {}),
+    ...Object.keys(secondary.metadata ?? {}),
+  ])) {
+    mergedMetadata[key] = unique([
+      ...(primary.metadata?.[key] ?? []),
+      ...(secondary.metadata?.[key] ?? []),
+    ]);
   }
 
   return {
-    ...left,
-    summary: right.summary && (right.summary.length > (left.summary?.length ?? 0)) ? right.summary : left.summary,
-    url:
-      right.url?.includes("/portal/screen/opportunities/topic-details/")
-        ? right.url
-        : left.url?.includes("/portal/screen/opportunities/topic-details/")
-          ? left.url
-          : right.url ?? left.url,
-    weight: Math.max(left.weight ?? 0, right.weight ?? 0),
+    ...secondary,
+    ...primary,
+    summary:
+      primary.summary && primary.summary.trim()
+        ? primary.summary
+        : secondary.summary,
+    url: choosePreferredTopicUrl(primary, secondary),
+    weight: Math.max(primary.weight ?? 0, secondary.weight ?? 0),
     metadata: mergedMetadata,
   };
+}
+
+function choosePreferredTopicUrl(primary: RawSediaResult, secondary: RawSediaResult) {
+  if (primary.url?.includes("/portal/screen/opportunities/topic-details/")) {
+    return primary.url;
+  }
+  if (secondary.url?.includes("/portal/screen/opportunities/topic-details/")) {
+    return secondary.url;
+  }
+  return primary.url ?? secondary.url;
+}
+
+function scoreRawTopicVariant(item: RawSediaResult) {
+  const language = firstString(item.metadata?.language)?.toLowerCase();
+  const languageScore = language === "en" ? 1200 : language ? 0 : 500;
+  const portalScore = item.url?.includes("/portal/screen/opportunities/topic-details/") ? 180 : 0;
+  const titleLength = (firstString(item.metadata?.title) ?? item.summary ?? "").length;
+  const descriptionLength = stripHtml(
+    firstString(item.metadata?.descriptionByte) ??
+      firstString(item.metadata?.description) ??
+      item.summary ??
+      "",
+  ).length;
+
+  return (
+    languageScore +
+    portalScore +
+    Math.min(titleLength, 120) * 2 +
+    Math.min(descriptionLength, 600) +
+    (item.weight ?? 0) * 10
+  );
 }
 
 function normalizeSediaTopic(item: RawSediaResult): LiveTopic | undefined {
@@ -863,6 +949,7 @@ function normalizeSediaTopic(item: RawSediaResult): LiveTopic | undefined {
     keywords,
     eligibilityText,
     sourceUrl: buildTopicUrl(identifier),
+    sourceLanguage: firstString(metadata.language)?.toLowerCase(),
     lastFetchedAt: new Date().toISOString(),
     openingDate,
   };
@@ -1816,6 +1903,9 @@ function applyResultFilters(result: SearchResult, filters: SearchFilters) {
 }
 
 function passesTopicalGuard(query: string, result: SearchResult) {
+  if (!hasQueryAnchorInTopic(query, result.topic)) {
+    return false;
+  }
   const lexical = lexicalScore(tokenize(query), tokenize(composeTopicText(result.topic)));
   const semantic = semanticSimilarity(query, composeTopicText(result.topic));
   const analogAlignment = result.scoreBreakdown.opportunity.analogAlignment;
@@ -1828,6 +1918,9 @@ function hasStrongCurrentMatch(query: string, result: SearchResult | undefined) 
   }
 
   const queryTokens = tokenize(query);
+  if (!hasQueryAnchorInTopic(query, result.topic)) {
+    return false;
+  }
   const titleSignal = lexicalScore(queryTokens, tokenize(result.topic.title));
   const requiredTitleSignal = queryTokens.length > 1 ? 0.56 : 0.5;
   const directSignal =
@@ -2182,6 +2275,7 @@ function stripLiveTopic(topic: LiveTopic): Topic {
     keywords: topic.keywords,
     eligibilityText: topic.eligibilityText,
     sourceUrl: topic.sourceUrl,
+    sourceLanguage: topic.sourceLanguage,
     lastFetchedAt: topic.lastFetchedAt,
   };
 }
@@ -2361,6 +2455,66 @@ function buildPublicDataFallbackVariants(
   ).slice(0, FALLBACK_VARIANT_LIMIT);
 }
 
+function buildAnchoredCurrentVariants(
+  query: string,
+  rawTopicHits: RawSediaResult[],
+  excludedVariants: string[],
+) {
+  const queryTokens = tokenize(query).filter((token) => !TERM_STOPWORDS.has(token));
+  const anchorToken =
+    [...queryTokens].sort((left, right) => right.length - left.length)[0] ?? queryTokens[0];
+  if (!anchorToken) {
+    return [];
+  }
+
+  const excluded = new Set(excludedVariants.map((variant) => normalizeText(variant)));
+  const counts = new Map<string, number>();
+  const currentHits = rawTopicHits.filter((item) => {
+    if (!looksLikeTopic(item)) {
+      return false;
+    }
+    const parsedAction = parseAction(firstString(item.metadata?.actions));
+    const status = mapStatusCode(firstString(item.metadata?.status), parsedAction?.status?.description);
+    return status === "open" || status === "forthcoming";
+  });
+
+  for (const item of currentHits) {
+    const text = [
+      firstString(item.metadata?.title) ?? item.summary ?? "",
+      stripHtml(
+        firstString(item.metadata?.descriptionByte) ??
+          firstString(item.metadata?.description) ??
+          "",
+      ),
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    for (const phrase of extractInformativePhrases(text)) {
+      const normalizedPhrase = normalizeText(phrase);
+      const phraseTokens = tokenize(normalizedPhrase);
+      if (
+        excluded.has(normalizedPhrase) ||
+        phraseTokens.length < 2 ||
+        phraseTokens.length > 4 ||
+        !hasExpandedAnchorToken(phraseTokens, anchorToken)
+      ) {
+        continue;
+      }
+      counts.set(normalizedPhrase, (counts.get(normalizedPhrase) ?? 0) + 1);
+    }
+  }
+
+  return [...counts.entries()]
+    .map(([variant, count]) => ({
+      variant,
+      score: count * 2 + lexicalScore(queryTokens, tokenize(variant)),
+    }))
+    .sort((left, right) => right.score - left.score)
+    .map((entry) => entry.variant)
+    .slice(0, 4);
+}
+
 function extractInformativePhrases(text: string) {
   const tokens = tokenize(text).filter((token) => token.length >= 4 && !TERM_STOPWORDS.has(token));
   const phrases = new Set<string>();
@@ -2424,7 +2578,7 @@ function pluralSearchForm(token: string) {
 }
 
 function countCurrentTopics(topics: LiveTopic[]) {
-  return topics.filter((topic) => topic.statusTag === "open" || topic.statusTag === "forthcoming").length;
+  return topics.filter((topic) => isCurrentTopic(topic)).length;
 }
 
 function parseTrl(text: string) {
@@ -2455,7 +2609,10 @@ function fallbackDeadline(status: LiveTopic["statusTag"]) {
 }
 
 function isPastDeadline(value: string) {
-  const deadline = new Date(`${value}T23:59:59Z`);
+  const deadline = parseIsoDateAtEndOfDay(value);
+  if (!deadline) {
+    return false;
+  }
   return deadline.getTime() < Date.now();
 }
 
@@ -2656,7 +2813,8 @@ function longestCommonSubsequence(left: string, right: string) {
 
 function recencyWeight(dateValue: string) {
   const currentYear = new Date().getUTCFullYear();
-  const yearDelta = currentYear - new Date(`${dateValue}T00:00:00Z`).getUTCFullYear();
+  const parsedDate = parseIsoDateAtStartOfDay(dateValue);
+  const yearDelta = currentYear - (parsedDate?.getUTCFullYear() ?? currentYear);
   return clamp(1 - yearDelta * 0.12, 0.25, 1);
 }
 
@@ -2684,10 +2842,150 @@ function sigmoid(value: number) {
 }
 
 function daysUntil(dateValue: string) {
+  const targetDate = parseIsoDateAtStartOfDay(dateValue);
+  if (!targetDate) {
+    return Number.POSITIVE_INFINITY;
+  }
   const currentDate = new Date();
-  const targetDate = new Date(`${dateValue}T00:00:00Z`);
-  const ms = targetDate.getTime() - currentDate.getTime();
-  return Math.max(0, Math.round(ms / (1000 * 60 * 60 * 24)));
+  const today = Date.UTC(
+    currentDate.getUTCFullYear(),
+    currentDate.getUTCMonth(),
+    currentDate.getUTCDate(),
+  );
+  const target = Date.UTC(
+    targetDate.getUTCFullYear(),
+    targetDate.getUTCMonth(),
+    targetDate.getUTCDate(),
+  );
+  return Math.round((target - today) / (1000 * 60 * 60 * 24));
+}
+
+function parseIsoDateAtStartOfDay(value?: string) {
+  const normalized = normalizeIsoDate(value);
+  if (!normalized) {
+    return undefined;
+  }
+  const parsed = new Date(`${normalized}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function parseIsoDateAtEndOfDay(value?: string) {
+  const normalized = normalizeIsoDate(value);
+  if (!normalized) {
+    return undefined;
+  }
+  const parsed = new Date(`${normalized}T23:59:59Z`);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
+function isCurrentTopic(topic: LiveTopic) {
+  return (
+    (topic.statusTag === "open" || topic.statusTag === "forthcoming") &&
+    !isPastDeadline(topic.deadline)
+  );
+}
+
+function hasQueryAnchorInTopic(query: string, topic: Topic) {
+  const queryTokens = tokenize(query).filter((token) => !TERM_STOPWORDS.has(token));
+  if (queryTokens.length === 0) {
+    return true;
+  }
+
+  const anchorToken =
+    [...queryTokens].sort((left, right) => right.length - left.length)[0] ?? queryTokens[0];
+  if (!anchorToken || anchorToken.length < 3) {
+    return true;
+  }
+
+  const topicTokens = tokenize(`${topic.title} ${topic.description} ${topic.keywords.join(" ")}`);
+  return hasExpandedAnchorToken(topicTokens, anchorToken);
+}
+
+function hasExpandedAnchorToken(tokens: string[], anchorToken: string) {
+  const anchorForms = new Set(expandTokenSearchForms(anchorToken));
+  const topicForms = new Set(tokens.flatMap((token) => expandTokenSearchForms(token)));
+  return [...anchorForms].some((form) => topicForms.has(form));
+}
+
+function languagePenalty(topic: LiveTopic) {
+  if (!topic.sourceLanguage || topic.sourceLanguage === "en") {
+    return 0;
+  }
+  if (looksLikeEnglishCopy(`${topic.title} ${topic.description}`)) {
+    return 0;
+  }
+  return 15;
+}
+
+function looksLikeEnglishCopy(text: string) {
+  return countEnglishTokenMatches(text) >= 3;
+}
+
+function looksLikeEnglishTitle(text: string) {
+  return countEnglishTokenMatches(text) >= 2;
+}
+
+function countEnglishTokenMatches(text: string) {
+  const englishTokens = new Set([
+    "the",
+    "and",
+    "for",
+    "with",
+    "to",
+    "in",
+    "on",
+    "of",
+    "by",
+    "from",
+    "are",
+    "is",
+    "all",
+    "expected",
+    "outcome",
+    "project",
+    "results",
+    "understanding",
+    "avoiding",
+    "advancing",
+    "bridging",
+    "standardising",
+    "supporting",
+    "open",
+    "topic",
+    "european",
+    "innovation",
+    "change",
+    "climate",
+    "risk",
+    "assessments",
+    "adaptation",
+    "hydrogen",
+    "battery",
+    "construction",
+    "water",
+    "bio",
+    "digital",
+  ]);
+  return tokenize(text).filter((token) => englishTokens.has(token)).length;
+}
+
+function prioritizePreferredDisplayLanguage(results: SearchResult[]) {
+  const preferred = results.filter((result) => isPreferredDisplayLanguage(result.topic));
+  if (preferred.length < 2) {
+    return results;
+  }
+  const others = results.filter((result) => !isPreferredDisplayLanguage(result.topic));
+  return [...preferred, ...others];
+}
+
+function isPreferredDisplayLanguage(topic: Topic) {
+  if (topic.sourceLanguage === "en" || !topic.sourceLanguage) {
+    return true;
+  }
+  if (looksLikeEnglishTitle(topic.title)) {
+    return true;
+  }
+  return looksLikeEnglishCopy(topic.description);
 }
 
 function clamp(value: number, minimum: number, maximum: number) {
@@ -2729,5 +3027,8 @@ function uniqueBy<T>(values: T[], selector: (value: T) => string) {
 }
 
 export const __test__ = {
+  buildAnchoredCurrentVariants,
+  daysUntil,
   isGrantTopicRecord,
+  mergeRawTopic,
 };

@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest",
-    "test:run": "vitest run"
+    "test:run": "vitest run",
+    "smoke:live": "npx --yes tsx scripts/smoke-live-search.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "5.96.2",

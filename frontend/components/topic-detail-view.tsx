@@ -12,7 +12,7 @@ import {
   YAxis,
 } from "recharts";
 import { loadDemoDataset, loadTopicDetail } from "@/lib/api";
-import { formatCurrency, formatDate } from "@/lib/format";
+import { formatCurrency, formatDate, formatDeadlineStatus } from "@/lib/format";
 import { CaveatBanner } from "@/components/caveat-banner";
 import type { TopicDetail } from "@/lib/types";
 
@@ -81,6 +81,14 @@ export function TopicDetailView({ topicId }: { topicId: string }) {
               {detail.topic.title}
             </h2>
             <p className="mt-3 text-sm leading-6 text-slate-600">{detail.topic.description}</p>
+            <a
+              href={detail.topic.sourceUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-4 inline-flex text-sm font-semibold text-teal-700 hover:text-teal-800"
+            >
+              Open official topic page
+            </a>
           </div>
           <div className="flex flex-wrap gap-3">
             <button
@@ -129,6 +137,9 @@ export function TopicDetailView({ topicId }: { topicId: string }) {
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
             <p className="text-slate-500">Deadline</p>
             <p className="mt-1 font-semibold text-slate-950">{formatDate(detail.topic.deadline)}</p>
+            <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+              {formatDeadlineStatus(detail.topic.deadline)}
+            </p>
           </div>
           <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm">
             <p className="text-slate-500">Budget</p>

@@ -11,7 +11,12 @@ import {
   YAxis,
 } from "recharts";
 import type { SearchResult } from "@/lib/types";
-import { formatCurrency, formatDate, formatPercent } from "@/lib/format";
+import {
+  formatCurrency,
+  formatDate,
+  formatDeadlineStatus,
+  formatPercent,
+} from "@/lib/format";
 
 function ProbabilityChip({ result }: { result: SearchResult }) {
   if (result.probability.mode === "public_probability") {
@@ -90,10 +95,21 @@ export function OpportunityCard({ result }: { result: SearchResult }) {
                 <br />
                 {result.topic.topicId}
               </dd>
+              <a
+                href={result.topic.sourceUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex text-xs font-semibold uppercase tracking-[0.16em] text-teal-700"
+              >
+                Open topic page
+              </a>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <dt className="text-slate-500">Deadline</dt>
               <dd className="mt-1 font-semibold text-slate-950">{formatDate(result.topic.deadline)}</dd>
+              <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                {formatDeadlineStatus(result.topic.deadline)}
+              </p>
             </div>
             <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <dt className="text-slate-500">Indicative budget</dt>
