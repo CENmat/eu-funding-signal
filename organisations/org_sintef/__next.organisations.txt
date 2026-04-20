@@ -2,4 +2,4 @@
 2:I[39756,["/eu-funding-signal/_next/static/chunks/1318y.ozc4pox.js","/eu-funding-signal/_next/static/chunks/0n4z.7yu76je-.js"],"default"]
 3:I[37457,["/eu-funding-signal/_next/static/chunks/1318y.ozc4pox.js","/eu-funding-signal/_next/static/chunks/0n4z.7yu76je-.js"],"default"]
 4:[]
-0:{"rsc":["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","template":["$","$L3",null,{}]}]]}],"isPartial":false,"staleTime":300,"varyParams":"$W4","buildId":"F9DK1-VbtCM8S8CPtXLzL"}
+0:{"rsc":["$","$1","c",{"children":[null,["$","$L2",null,{"parallelRouterKey":"children","template":["$","$L3",null,{}]}]]}],"isPartial":false,"staleTime":300,"varyParams":"$W4","buildId":"V8MygxVT-92gd9i4THu_O"}
