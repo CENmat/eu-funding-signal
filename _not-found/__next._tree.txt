@@ -1,2 +1,2 @@
-:HL["/eu-funding-signal/_next/static/chunks/12t-t26d8x9j0.css","style"]
-0:{"tree":{"name":"","param":null,"prefetchHints":16,"slots":{"children":{"name":"/_not-found","param":null,"prefetchHints":0,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":0,"slots":null}}}}},"staleTime":300,"buildId":"_C5g7Yt_zIJG0pFErXQJ-"}
+:HL["/eu-funding-signal/_next/static/chunks/0zhcfwlzwg.b7.css","style"]
+0:{"tree":{"name":"","param":null,"prefetchHints":16,"slots":{"children":{"name":"/_not-found","param":null,"prefetchHints":0,"slots":{"children":{"name":"__PAGE__","param":null,"prefetchHints":0,"slots":null}}}}},"staleTime":300,"buildId":"F9DK1-VbtCM8S8CPtXLzL"}
